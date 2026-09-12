@@ -98,20 +98,65 @@ SafeRoute AI enforces strict privacy guarantees at both the domain model and rep
 * **Zero Automatic Inferences**: Adding a contact, starting a journey, or saving a profile will **never** automatically toggle consent to `true`.
 * **Instant Revocation**: Users can revoke consent at any time from the Privacy & Consent screen; changes take effect immediately on-device.
 
-### Deliberately NOT Implemented in Milestone 2A
-To maintain privacy integrity and avoid scope creep:
-* **No Location Services**: No GPS, network geolocation, or background location APIs.
-* **No Android Runtime Permissions**: Zero runtime permissions declared or requested in `AndroidManifest.xml`.
-* **No Microphone or Audio Recording**: Acoustic safety monitoring is completely absent in this milestone.
-* **No Cloud / Backend Synchronization**: No network requests, external servers, Firebase, or analytics.
-* **No Push Notifications**: No push service or notification manager bindings.
+---
+
+## 5. Foreground Location Architecture & Dual-Gate Enforcement (Milestone 2B)
+
+Milestone 2B introduces real-time geolocation strictly scoped to the foreground lifecycle of an active Safe Journey.
+
+```
+       ┌─────────────────────────────────────────────────────────┐
+       │             Start / Resume Tracking Intent              │
+       └────────────────────────────┬────────────────────────────┘
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────────────┐
+       │                 Dual-Gate Verification                  │
+       │  Gate 1: LocationPermissionStatus.isGranted (Android)   │
+       │  Gate 2: UserConsent.locationSharingConsent == true     │
+       └────────────────────────────┬────────────────────────────┘
+                                    │
+                     ┌──────────────┴──────────────┐
+                     │ Both Satisfied?             │
+                     │                             │
+                YES  ▼                             ▼  NO
+       ┌────────────────────────┐      ┌─────────────────────────┐
+       │ LocationTrackingState  │      │ LocationTrackingState   │
+       │      .TRACKING         │      │ .PERMISSION_REQUIRED or │
+       │ (Streams UserLocation) │      │   .CONSENT_REQUIRED     │
+       └────────────────────────┘      └─────────────────────────┘
+```
+
+### Strict Invariants & Guarantees
+1. **Dual-Gate Requirement**:
+   * Android Runtime Permission (`ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` requested together).
+   * Explicit local user consent (`locationSharingConsent == true`).
+   * **Both must be true** before tracking can begin or resume. If either gate is revoked or absent, the use case rejects tracking with a typed `LocationError.DualGateNotSatisfied`.
+
+2. **Strictly Foreground-Only**:
+   * **Zero Background Tracking**: `ACCESS_BACKGROUND_LOCATION` is deliberately omitted. No foreground service or background polling worker is created.
+   * **Lifecycle-Coupled State**:
+     - When the app is in the foreground: `TRACKING`.
+     - When the Activity/session leaves the foreground: automatically transitions to `PAUSED`.
+     - While `PAUSED`: zero location updates are polled or emitted.
+     - On return to foreground: restored to `TRACKING` only if both gates remain satisfied.
+
+3. **Qualitative Approximate Accuracy Handling**:
+   * Android's approximate-location behavior is treated as the source of truth.
+   * No hardcoded `~2 km` or `2000 m` radii.
+   * Display qualitative, user-friendly guidance: *"Approximate location active — some location features may be less accurate."*
+
+4. **Volatile In-Memory Coordinates**:
+   * Coordinates (`UserLocation`) are broadcast via Kotlin `StateFlow` strictly in-memory.
+   * Zero Room persistence, zero disk caching, and zero cloud transmission of coordinates.
+   * Ending the journey always transitions state to `STOPPED` and permanently clears volatile location data.
 
 ---
 
-## 5. Future Module Boundaries & Isolation
+## 6. Future Module Boundaries & Isolation
 
-1. **Location Subsystem (`LocationRepository`) — Milestone 2B**:
-   - Manages foreground location updates strictly when user grants both Android runtime permission and explicit `locationSharingConsent`.
+1. **Local Safety Session & Anomaly Heuristics — Milestone 3**:
+   - Session metadata persistence, timed checkpoints, stopped motion detection, and route deviation indicators.
 2. **Audio & Speech Intelligence (`AudioIntelligenceRepository`, `SpeechIntelligenceRepository`) — Milestone 4**:
    - On-device acoustic anomaly and wake-word/distress classifiers.
 3. **Risk Assessment (`RiskAssessmentRepository`) — Milestone 5**:

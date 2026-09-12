@@ -71,6 +71,9 @@ dependencies {
     // Preferences DataStore 1.2.1
     implementation("androidx.datastore:datastore-preferences:1.2.1")
 
+    // Google Play Services Location 21.3.0 (21.4.0 has Kotlin metadata 2.3.0 incompatible with Kotlin 2.0.21)
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 

@@ -4,18 +4,17 @@ SafeRoute AI is a personal safety journey application designed to accompany user
 
 ---
 
-## Current Milestone: Milestone 2A - User Profile, Trusted Contacts & Consent Foundation
+## Current Milestone: Milestone 2B - Foreground Location Foundation & User-Controlled Tracking
 
-Milestone 2A implements a privacy-first, on-device local identity, trusted emergency contacts management, and explicit user consent foundation.
+Milestone 2B implements a strictly foreground-only, dual-gated geolocation tracking foundation during active Safe Journeys.
 
 > [!NOTE]
-> **Privacy & Permissions Guarantee**:
-> * **Zero Runtime Permissions**: Milestone 2A requests zero Android permissions.
-> * **Zero Location Tracking**: No GPS, network location, or location services are implemented in this milestone.
-> * **Zero Audio Recording**: No microphone or acoustic monitoring is active.
-> * **Zero Background Services**: The app operates purely while foregrounded by the user.
-> * **Zero Cloud Telemetry**: All profile, contact, and consent data resides strictly on-device in local SQLite storage (Room) and DataStore Preferences.
-> * **Explicit Consent**: Consent flags for location and emergency sharing default strictly to `false` and are never automatically enabled or inferred from adding contacts.
+> **Privacy & Location Tracking Invariants**:
+> * **Strict Dual-Gate Invariant**: Location tracking **strictly requires BOTH** Android runtime location permission (`ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`) AND explicit `locationSharingConsent == true` in UserConsent. Neither condition alone is sufficient.
+> * **Strictly Foreground-Only**: Zero background tracking (`ACCESS_BACKGROUND_LOCATION` is prohibited). Tracking operates purely while the application Activity is in the foreground (`TRACKING`). When the Activity leaves the foreground, tracking automatically transitions to `PAUSED` and ceases emissions.
+> * **Qualitative Accuracy UI**: Uses Android's approximate-location behavior as the source of truth, presenting qualitative feedback (*"Approximate location active — some location features may be less accurate."*) rather than arbitrary hardcoded radius numbers.
+> * **Volatile In-Memory Coordinates**: Live coordinates are streamed via StateFlow in volatile memory only. Coordinates are **never** persisted to Room, written to disk, or transmitted to any backend. Ending a journey always transitions tracking to `STOPPED` and permanently clears volatile location state.
+> * **Zero Cloud Telemetry**: Zero Firebase, WebSockets, cloud transmission, audio recording, AI inference, or background services.
 
 ---
 
@@ -23,6 +22,7 @@ Milestone 2A implements a privacy-first, on-device local identity, trusted emerg
 
 * **Language**: Kotlin 2.0.21
 * **Symbol Processing**: KSP `2.0.21-1.0.28`
+* **Google Play Services Location**: `21.3.0` (FusedLocationProviderClient, Priority.PRIORITY_HIGH_ACCURACY)
 * **Local Database**: AndroidX Room `2.8.5` (Entities, DAOs, Flow streams)
 * **Lightweight Storage**: AndroidX DataStore Preferences `1.2.1`
 * **UI Toolkit**: Jetpack Compose with Material 3
@@ -55,13 +55,19 @@ app/src/main/java/com/saferouteai/
 │   │   ├── JourneyState.kt                     # Domain state machine (IDLE, ACTIVE, COMPLETED)
 │   │   ├── TrustedContact.kt                   # Contact model with validation rules
 │   │   ├── UserConsent.kt                      # Explicit consent model (defaults false)
-│   │   └── UserProfile.kt                      # Local user profile model
+│   │   ├── UserProfile.kt                      # Local user profile model
+│   │   └── location/
+│   │       ├── LocationError.kt                # Location domain errors (Gates, Provider, etc.)
+│   │       ├── LocationPermissionStatus.kt     # Fine / Coarse / Denied status
+│   │       ├── LocationTrackingState.kt        # IDLE, READY, TRACKING, PAUSED, ERROR, STOPPED
+│   │       └── UserLocation.kt                 # Volatile in-memory location model
 │   ├── repository/
 │   │   ├── ConsentRepository.kt                # Contract for user consent flags
 │   │   ├── JourneyRepository.kt                # Journey state management contract
+│   │   ├── LocationPermissionChecker.kt        # Contract for runtime permission inspection
+│   │   ├── LocationRepository.kt               # Contract for foreground tracking & state
 │   │   ├── TrustedContactsRepository.kt        # Trusted contact CRUD contract
-│   │   ├── UserProfileRepository.kt            # Profile persistence contract
-│   │   └── [Future Repository Placeholders]    # Location, Audio, Risk, Incident, etc.
+│   │   └── UserProfileRepository.kt            # Profile persistence contract
 │   └── usecase/
 │       ├── AddTrustedContactUseCase.kt         # Validates & creates trusted contact
 │       ├── EndJourneyUseCase.kt                # Concludes active journey
@@ -75,7 +81,14 @@ app/src/main/java/com/saferouteai/
 │       ├── SetContactEnabledUseCase.kt         # Toggles contact active state
 │       ├── StartJourneyUseCase.kt              # Initiates journey
 │       ├── UpdateConsentUseCase.kt             # Explicit consent mutator
-│       └── UpdateTrustedContactUseCase.kt      # Validates & updates contact
+│       ├── UpdateTrustedContactUseCase.kt      # Validates & updates contact
+│       └── location/
+│           ├── GetLocationTrackingStateUseCase.kt # Observes tracking state flow
+│           ├── GetLocationUpdatesUseCase.kt       # Observes location stream
+│           ├── PauseLocationTrackingUseCase.kt    # Pauses tracking on background
+│           ├── ResumeLocationTrackingUseCase.kt   # Dual-gate validated resume
+│           ├── StartLocationTrackingUseCase.kt    # Dual-gate validated start
+│           └── StopLocationTrackingUseCase.kt     # Halts tracking & clears coordinates
 ├── data/
 │   ├── local/
 │   │   ├── SafeRouteDatabase.kt                # Room database (Room 2.8.5)
@@ -87,10 +100,16 @@ app/src/main/java/com/saferouteai/
 │   │   └── entity/
 │   │       ├── TrustedContactEntity.kt         # Room entity for trusted_contacts
 │   │       └── UserProfileEntity.kt            # Room entity for user_profile
+│   ├── location/
+│   │   ├── AndroidLocationPermissionChecker.kt # Context-based permission inspector
+│   │   ├── FusedLocationDataSource.kt          # Play Services FusedLocation callback wrapper
+│   │   └── LocationMapper.kt                   # Android Location -> UserLocation mapper
 │   └── repository/
 │       ├── DataStoreConsentRepository.kt       # DataStore backed consent repository
+│       ├── FusedLocationRepository.kt          # Play Services backed location repository
 │       ├── InMemoryConsentRepository.kt        # Pure in-memory repository (for testing)
 │       ├── InMemoryJourneyRepository.kt        # Thread-safe journey repository
+│       ├── InMemoryLocationRepository.kt       # Pure in-memory location repository (for testing)
 │       ├── InMemoryTrustedContactsRepository.kt# Pure in-memory repository (for testing)
 │       ├── InMemoryUserProfileRepository.kt    # Pure in-memory repository (for testing)
 │       ├── RoomTrustedContactsRepository.kt    # Room backed contacts repository
@@ -110,8 +129,11 @@ app/src/main/java/com/saferouteai/
 │   │   └── TrustedContactsViewModel.kt         # Contacts ViewModel
 │   ├── home/
 │   │   ├── HomeScreen.kt                       # Primary journey dashboard
-│   │   ├── JourneyUiState.kt                   # Journey UI state model
-│   │   └── JourneyViewModel.kt                 # Journey state ViewModel
+│   │   ├── JourneyUiState.kt                   # Journey UI state model with location
+│   │   ├── JourneyViewModel.kt                 # Journey & location tracking coordinator
+│   │   ├── LocationPermissionLauncher.kt       # Rememberable launcher for dual permissions
+│   │   ├── LocationPreflightDialog.kt          # Preflight explanation dialog
+│   │   └── LocationStatusCard.kt               # Live location card & qualitative accuracy
 │   ├── profile/
 │   │   ├── ProfileScreen.kt                    # Profile editor screen
 │   │   ├── ProfileUiState.kt                   # Profile UI state model
@@ -125,7 +147,7 @@ app/src/main/java/com/saferouteai/
 │       ├── Color.kt                            # Material 3 color system
 │       ├── Theme.kt                            # Material 3 Theme wrapper
 │       └── Type.kt                             # Typography scale
-└── MainActivity.kt                             # Entry point wiring local DB and ViewModels
+└── MainActivity.kt                             # Activity with onStart/onStop lifecycle hooks
 ```
 
 ---
@@ -144,7 +166,7 @@ This project is configured to build entirely via the Gradle command line without
    ```powershell
    .\gradlew.bat testDebugUnitTest
    ```
-   Executes 53 unit tests across domain models, use cases, view models, and validation rules.
+   Executes 74 unit tests across domain models, use cases, view models, lifecycle transitions, and dual-gate security validations.
 
 2. **Assemble Debug APK**:
    ```powershell
@@ -157,8 +179,7 @@ This project is configured to build entirely via the Gradle command line without
 
 ## Future Roadmap
 
-* **Milestone 2B**: User-Controlled Foreground Geolocation Services (gated by explicit location sharing consent and runtime permission).
-* **Milestone 3**: Automated Transit & Activity Detection with Local System Notifications.
+* **Milestone 3**: Local Safety Session & Anomaly Heuristics (local session persistence, timed checkpoints, deviation/stopped-motion alerts).
 * **Milestone 4**: On-Device Acoustic Intelligence & Wake-Word Distress Detection.
 * **Milestone 5**: Multi-Signal Risk Assessment & Dynamic Safety Tier Engine.
 * **Milestone 6**: Emergency Protocol Dispatch, Incident Logging, and SOS Coordination.

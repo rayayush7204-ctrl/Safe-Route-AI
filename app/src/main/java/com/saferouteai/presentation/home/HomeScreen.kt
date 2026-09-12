@@ -1,7 +1,6 @@
 package com.saferouteai.presentation.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -50,6 +49,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saferouteai.domain.model.JourneyState
 import com.saferouteai.presentation.common.SectionCard
 import com.saferouteai.presentation.common.StatusBadge
+import com.saferouteai.presentation.home.components.LocationPreflightDialog
+import com.saferouteai.presentation.home.components.LocationStatusCard
+import com.saferouteai.presentation.permission.rememberLocationPermissionLauncher
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +62,10 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val requestPermissionLauncher = rememberLocationPermissionLauncher { status ->
+        viewModel.onPermissionResult(status)
+    }
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { error ->
@@ -148,7 +154,7 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Current Journey State Card
             Card(
@@ -179,8 +185,8 @@ fun HomeScreen(
 
                     Text(
                         text = when (uiState.journeyState) {
-                            JourneyState.IDLE -> "Ready to accompany you. Tap below to begin a journey demonstration."
-                            JourneyState.ACTIVE -> "Journey session is currently active. Safety monitors will attach here in future milestones."
+                            JourneyState.IDLE -> "Ready to accompany you. Tap below to begin a safe journey."
+                            JourneyState.ACTIVE -> "Safe journey session is active. Foreground location is monitoring."
                             JourneyState.COMPLETED -> "Your safe journey session has successfully concluded."
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -191,7 +197,16 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            // Real-Time Location Card during Active Journey
+            if (uiState.isJourneyActive) {
+                Spacer(modifier = Modifier.height(20.dp))
+                LocationStatusCard(
+                    trackingState = uiState.locationTrackingState,
+                    location = uiState.currentLocation
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Primary Action Button
             if (uiState.isLoading) {
@@ -200,7 +215,7 @@ fun HomeScreen(
                 when (uiState.journeyState) {
                     JourneyState.IDLE -> {
                         Button(
-                            onClick = { viewModel.startJourney() },
+                            onClick = { viewModel.onStartJourneyClicked() },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(56.dp),
@@ -210,7 +225,7 @@ fun HomeScreen(
                             )
                         ) {
                             Icon(
-                                imageVector = Icons.Default.DirectionsWalk,
+                                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -258,7 +273,7 @@ fun HomeScreen(
                             )
                         ) {
                             Icon(
-                                imageVector = Icons.Default.DirectionsWalk,
+                                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -298,11 +313,21 @@ fun HomeScreen(
 
             // Privacy & Architecture Foundation Notice
             SectionCard(
-                title = "Milestone 1 Foundation",
-                description = "Demonstration mode only. No GPS tracking, microphone recording, or background services are active in this build.",
+                title = "Foreground-Only Privacy",
+                description = "Dual-gated tracking requires both in-app consent and Android permission. Zero background polling or remote data storage.",
                 icon = Icons.Default.Info,
-                trailingTag = "Privacy Safe"
+                trailingTag = "Dual-Gated"
             )
         }
+    }
+
+    if (uiState.showPreflightDialog) {
+        LocationPreflightDialog(
+            isConsentGranted = uiState.isConsentGranted,
+            isPermissionGranted = uiState.isPermissionGranted,
+            onDismiss = { viewModel.dismissPreflightDialog() },
+            onNavigateToSettings = onNavigateToSettings,
+            onRequestPermission = { requestPermissionLauncher() }
+        )
     }
 }

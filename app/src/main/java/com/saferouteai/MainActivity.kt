@@ -6,7 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import com.saferouteai.data.local.SafeRouteDatabase
 import com.saferouteai.data.local.datastore.ConsentDataStore
+import com.saferouteai.data.location.AndroidLocationPermissionChecker
+import com.saferouteai.data.location.FusedLocationDataSource
 import com.saferouteai.data.repository.DataStoreConsentRepository
+import com.saferouteai.data.repository.FusedLocationRepository
 import com.saferouteai.data.repository.InMemoryJourneyRepository
 import com.saferouteai.data.repository.RoomTrustedContactsRepository
 import com.saferouteai.data.repository.RoomUserProfileRepository
@@ -21,6 +24,7 @@ import com.saferouteai.presentation.theme.SafeRouteTheme
  * Main application entry point for SafeRoute AI.
  *
  * Keeps business logic entirely delegated to the presentation and domain layers.
+ * Forwards Activity lifecycle events to ensure location tracking is strictly foreground-only.
  */
 class MainActivity : ComponentActivity() {
 
@@ -36,9 +40,21 @@ class MainActivity : ComponentActivity() {
     private val consentDataStore by lazy { ConsentDataStore(applicationContext) }
     private val consentRepository by lazy { DataStoreConsentRepository(consentDataStore) }
 
+    // Location components (Play Services Fused Location + Permission Checker)
+    private val permissionChecker by lazy { AndroidLocationPermissionChecker(applicationContext) }
+    private val locationDataSource by lazy { FusedLocationDataSource(applicationContext) }
+    private val locationRepository by lazy {
+        FusedLocationRepository(locationDataSource, permissionChecker)
+    }
+
     // ViewModels
     private val journeyViewModel: JourneyViewModel by viewModels {
-        JourneyViewModel.provideFactory(journeyRepository)
+        JourneyViewModel.provideFactory(
+            journeyRepository = journeyRepository,
+            locationRepository = locationRepository,
+            consentRepository = consentRepository,
+            permissionChecker = permissionChecker
+        )
     }
 
     private val profileViewModel: ProfileViewModel by viewModels {
@@ -65,5 +81,17 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        permissionChecker.refreshStatus()
+        journeyViewModel.onAppForegrounded()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Strict foreground-only invariant: pause location tracking when activity leaves foreground
+        journeyViewModel.onAppBackgrounded()
     }
 }
