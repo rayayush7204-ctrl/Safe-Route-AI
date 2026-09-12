@@ -2,14 +2,10 @@ package com.saferouteai.presentation.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.saferouteai.presentation.common.SectionCard
@@ -36,6 +31,9 @@ import com.saferouteai.presentation.common.SectionCard
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToProfile: () -> Unit,
+    onNavigateToTrustedContacts: () -> Unit,
+    onNavigateToPrivacyConsent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -78,20 +76,22 @@ fun SettingsScreen(
                 modifier = Modifier.padding(start = 4.dp, top = 4.dp)
             )
 
-            // Profile placeholder
+            // Profile Section
             SectionCard(
                 title = "User Profile",
-                description = "Configure user identity, emergency notes, and medical alerts.",
+                description = "Configure your display name, contact phone, and alert email.",
                 icon = Icons.Default.Person,
-                trailingTag = "Planned M2"
+                trailingTag = "Configure",
+                onClick = onNavigateToProfile
             )
 
-            // Trusted Contacts placeholder
+            // Trusted Contacts Section
             SectionCard(
                 title = "Trusted Contacts",
                 description = "Manage emergency contacts notified during critical safety events.",
                 icon = Icons.Default.ContactEmergency,
-                trailingTag = "Planned M2"
+                trailingTag = "Manage",
+                onClick = onNavigateToTrustedContacts
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -103,18 +103,19 @@ fun SettingsScreen(
                 modifier = Modifier.padding(start = 4.dp)
             )
 
-            // Privacy placeholder
+            // Privacy & Consent Section
             SectionCard(
-                title = "Privacy & Data Protection",
-                description = "Zero telemetry and zero data sharing. Data remains strictly on-device.",
+                title = "Privacy & Consent",
+                description = "Manage explicit consent for location and emergency sharing.",
                 icon = Icons.Default.Lock,
-                trailingTag = "Enforced"
+                trailingTag = "Review",
+                onClick = onNavigateToPrivacyConsent
             )
 
-            // Permissions placeholder
+            // Permissions Status
             SectionCard(
                 title = "System Permissions",
-                description = "Zero runtime permissions requested. Future sensor permissions will be requested on-demand with explicit user consent.",
+                description = "Zero runtime permissions requested. All data remains 100% on-device.",
                 icon = Icons.Default.Shield,
                 trailingTag = "0 Required"
             )
