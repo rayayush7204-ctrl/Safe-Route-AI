@@ -53,6 +53,7 @@ import com.saferouteai.domain.model.session.SessionStatus
 import com.saferouteai.presentation.common.SectionCard
 import com.saferouteai.presentation.common.StatusBadge
 import com.saferouteai.presentation.home.components.CheckpointStatusCard
+import com.saferouteai.presentation.home.components.JourneySignalsCard
 import com.saferouteai.presentation.home.components.LocationPreflightDialog
 import com.saferouteai.presentation.home.components.LocationStatusCard
 import com.saferouteai.presentation.home.components.SafetyCheckInDialog
@@ -237,6 +238,12 @@ fun HomeScreen(
                     nextCheckpointRemainingMs = uiState.nextCheckpointRemainingMs,
                     onCheckInClicked = { viewModel.onAcknowledgeCheckpoint() }
                 )
+
+                // Local Journey Anomaly Observations Card
+                if (uiState.activeAnomalies.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    JourneySignalsCard(signals = uiState.activeAnomalies)
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

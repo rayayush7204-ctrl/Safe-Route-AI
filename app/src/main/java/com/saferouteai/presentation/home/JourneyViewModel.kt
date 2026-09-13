@@ -5,7 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.saferouteai.core.result.Result
 import com.saferouteai.data.time.SystemClock
+import com.saferouteai.domain.anomaly.JourneyAnomalyDetector
 import com.saferouteai.domain.model.JourneyState
+import com.saferouteai.domain.model.anomaly.AnomalySignal
+import com.saferouteai.domain.model.anomaly.ExpectedRoute
 import com.saferouteai.domain.model.location.LocationPermissionStatus
 import com.saferouteai.domain.model.location.LocationTrackingState
 import com.saferouteai.domain.model.location.UserLocation
@@ -14,6 +17,7 @@ import com.saferouteai.domain.model.session.CheckpointState
 import com.saferouteai.domain.model.session.JourneySession
 import com.saferouteai.domain.model.session.SessionStatus
 import com.saferouteai.domain.model.session.StartJourneyError
+import com.saferouteai.domain.repository.AnomalyRepository
 import com.saferouteai.domain.repository.ConsentRepository
 import com.saferouteai.domain.repository.JourneyRepository
 import com.saferouteai.domain.repository.JourneySessionRepository
@@ -24,6 +28,9 @@ import com.saferouteai.domain.usecase.EndJourneyUseCase
 import com.saferouteai.domain.usecase.GetJourneyStateUseCase
 import com.saferouteai.domain.usecase.ResetJourneyUseCase
 import com.saferouteai.domain.usecase.StartJourneyUseCase
+import com.saferouteai.domain.usecase.anomaly.ClearAnomaliesUseCase
+import com.saferouteai.domain.usecase.anomaly.EvaluateJourneyAnomaliesUseCase
+import com.saferouteai.domain.usecase.anomaly.GetActiveAnomaliesUseCase
 import com.saferouteai.domain.usecase.location.PauseLocationTrackingUseCase
 import com.saferouteai.domain.usecase.location.ResumeLocationTrackingUseCase
 import com.saferouteai.domain.usecase.location.StartLocationTrackingUseCase
@@ -37,6 +44,7 @@ import com.saferouteai.domain.usecase.session.StartJourneySessionUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -44,8 +52,9 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel managing the UI state and user interactions for the SafeRoute home journey flow.
- * Coordinates Journey lifecycle, dual-gated foreground Location tracking, and the Milestone 3
- * Safe Journey Session Engine with local periodic checkpoints.
+ * Coordinates Journey lifecycle, dual-gated foreground Location tracking, Milestone 3
+ * Safe Journey Session Engine with local periodic checkpoints, and Milestone 4 Local Journey
+ * Anomaly Intelligence.
  */
 class JourneyViewModel(
     private val startJourneyUseCase: StartJourneyUseCase,
@@ -66,13 +75,19 @@ class JourneyViewModel(
     private val acknowledgeCheckpointUseCase: AcknowledgeCheckpointUseCase? = null,
     private val resetJourneySessionUseCase: ResetJourneySessionUseCase? = null,
     private val journeySessionRepository: JourneySessionRepository? = null,
-    private val clock: Clock = SystemClock()
+    private val clock: Clock = SystemClock(),
+    // Milestone 4 Anomaly Intelligence additions:
+    private val evaluateJourneyAnomaliesUseCase: EvaluateJourneyAnomaliesUseCase? = null,
+    private val getActiveAnomaliesUseCase: GetActiveAnomaliesUseCase? = null,
+    private val clearAnomaliesUseCase: ClearAnomaliesUseCase? = null
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _showPreflightDialog = MutableStateFlow(false)
     private val _showSafetyCheckInDialog = MutableStateFlow(false)
+    private val _expectedRoute = MutableStateFlow<ExpectedRoute?>(null)
+    private val _expectedDurationMs = MutableStateFlow<Long?>(null)
 
     private val consentFlow = consentRepository?.getConsent()?.let { flow ->
         combine(flow) { it[0] }
@@ -83,6 +98,7 @@ class JourneyViewModel(
     private val currentLocationFlow = locationRepository?.currentLocation ?: flowOf(null)
     private val activeSessionFlow = journeySessionRepository?.activeSession ?: flowOf(null)
     private val sessionStatusFlow = journeySessionRepository?.sessionStatus ?: flowOf(SessionStatus.IDLE)
+    private val activeAnomaliesFlow = getActiveAnomaliesUseCase?.invoke() ?: flowOf(emptyList())
 
     val uiState: StateFlow<JourneyUiState> = combine(
         getJourneyStateUseCase(),
@@ -92,6 +108,9 @@ class JourneyViewModel(
         permissionStatusFlow,
         activeSessionFlow,
         sessionStatusFlow,
+        activeAnomaliesFlow,
+        _expectedRoute,
+        _expectedDurationMs,
         _showPreflightDialog,
         _showSafetyCheckInDialog,
         _isLoading,
@@ -104,10 +123,14 @@ class JourneyViewModel(
         val permissionStatus = args[4] as LocationPermissionStatus
         val session = args[5] as? JourneySession
         val sessionStatus = args[6] as SessionStatus
-        val showPreflight = args[7] as Boolean
-        val showCheckInDialog = args[8] as Boolean
-        val isLoading = args[9] as Boolean
-        val errorMessage = args[10] as? String
+        @Suppress("UNCHECKED_CAST")
+        val activeAnomalies = args[7] as List<AnomalySignal>
+        val expectedRoute = args[8] as? ExpectedRoute
+        val expectedDurationMs = args[9] as? Long
+        val showPreflight = args[10] as Boolean
+        val showCheckInDialog = args[11] as Boolean
+        val isLoading = args[12] as Boolean
+        val errorMessage = args[13] as? String
 
         val isConsentGranted = consent?.locationSharingConsent ?: false
         val isPermissionGranted = permissionStatus.isGranted
@@ -117,7 +140,7 @@ class JourneyViewModel(
             (next - clock.nowEpochMs()).coerceAtLeast(0L)
         }
 
-        // Auto-show check-in dialog when status is CHECKPOINT_DUE unless dismissed
+        // Auto-show check-in dialog when status is CHECKPOINT_DUE
         val effectiveShowCheckIn = showCheckInDialog || sessionStatus == SessionStatus.CHECKPOINT_DUE
 
         JourneyUiState(
@@ -134,13 +157,35 @@ class JourneyViewModel(
             checkpointState = session?.checkpointState ?: CheckpointState.DISARMED,
             nextCheckpointRemainingMs = nextCheckpointRemainingMs,
             showSafetyCheckInDialog = effectiveShowCheckIn,
-            elapsedDurationMs = elapsedDurationMs
+            elapsedDurationMs = elapsedDurationMs,
+            activeAnomalies = activeAnomalies,
+            expectedRoute = expectedRoute,
+            expectedDurationMs = expectedDurationMs
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = JourneyUiState()
     )
+
+    init {
+        // Evaluate anomalies automatically whenever a new location coordinate arrives during active session
+        if (locationRepository != null && evaluateJourneyAnomaliesUseCase != null) {
+            viewModelScope.launch {
+                locationRepository.currentLocation.collectLatest { location ->
+                    val session = journeySessionRepository?.activeSession?.value ?: uiState.value.session
+                    if (session != null && session.status.isActiveSession && location != null) {
+                        evaluateJourneyAnomaliesUseCase(
+                            session = session,
+                            newLocation = location,
+                            expectedRoute = _expectedRoute.value,
+                            expectedDurationMs = _expectedDurationMs.value
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     fun onStartJourneyClicked() {
         val currentState = uiState.value
@@ -181,6 +226,12 @@ class JourneyViewModel(
                     is Result.Success -> {
                         // Also sync legacy journey repository state for backward compatibility
                         startJourneyUseCase()
+                        // Initial anomaly evaluation
+                        evaluateJourneyAnomaliesUseCase?.invoke(
+                            session = result.data,
+                            expectedRoute = _expectedRoute.value,
+                            expectedDurationMs = _expectedDurationMs.value
+                        )
                     }
                     is Result.Error -> {
                         val ex = result.exception
@@ -220,6 +271,7 @@ class JourneyViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
+            clearAnomaliesUseCase?.invoke()
 
             if (endJourneySessionUseCase != null) {
                 when (val result = endJourneySessionUseCase.invoke()) {
@@ -248,6 +300,7 @@ class JourneyViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
+            clearAnomaliesUseCase?.invoke()
 
             if (cancelJourneySessionUseCase != null) {
                 when (val result = cancelJourneySessionUseCase.invoke()) {
@@ -278,11 +331,29 @@ class JourneyViewModel(
             _isLoading.value = true
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
+            clearAnomaliesUseCase?.invoke()
             stopLocationTrackingUseCase?.invoke()
             resetJourneySessionUseCase?.invoke()
             resetJourneyUseCase?.invoke()
             _isLoading.value = false
         }
+    }
+
+    fun setExpectedRoute(route: ExpectedRoute?) {
+        _expectedRoute.value = route
+    }
+
+    fun setExpectedDuration(durationMs: Long?) {
+        _expectedDurationMs.value = durationMs
+    }
+
+    fun evaluateAnomalies() {
+        val session = uiState.value.session ?: return
+        evaluateJourneyAnomaliesUseCase?.invoke(
+            session = session,
+            expectedRoute = _expectedRoute.value,
+            expectedDurationMs = _expectedDurationMs.value
+        )
     }
 
     fun dismissSafetyCheckInDialog() {
@@ -328,7 +399,9 @@ class JourneyViewModel(
             consentRepository: ConsentRepository? = null,
             permissionChecker: LocationPermissionChecker? = null,
             journeySessionRepository: JourneySessionRepository? = null,
-            clock: Clock = SystemClock()
+            clock: Clock = SystemClock(),
+            anomalyRepository: AnomalyRepository? = null,
+            anomalyDetector: JourneyAnomalyDetector? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -363,6 +436,13 @@ class JourneyViewModel(
                 val ackCheckpointUseCase = journeySessionRepository?.let { AcknowledgeCheckpointUseCase(it) }
                 val resetSessionUseCase = journeySessionRepository?.let { ResetJourneySessionUseCase(it) }
 
+                val effectiveDetector = anomalyDetector ?: JourneyAnomalyDetector()
+                val evaluateAnomaliesUseCase = if (anomalyRepository != null) {
+                    EvaluateJourneyAnomaliesUseCase(effectiveDetector, anomalyRepository, clock)
+                } else null
+                val getAnomaliesUseCase = anomalyRepository?.let { GetActiveAnomaliesUseCase(it) }
+                val clearAnomaliesUseCase = anomalyRepository?.let { ClearAnomaliesUseCase(it) }
+
                 return JourneyViewModel(
                     startJourneyUseCase = StartJourneyUseCase(journeyRepository),
                     endJourneyUseCase = EndJourneyUseCase(journeyRepository),
@@ -381,7 +461,10 @@ class JourneyViewModel(
                     acknowledgeCheckpointUseCase = ackCheckpointUseCase,
                     resetJourneySessionUseCase = resetSessionUseCase,
                     journeySessionRepository = journeySessionRepository,
-                    clock = clock
+                    clock = clock,
+                    evaluateJourneyAnomaliesUseCase = evaluateAnomaliesUseCase,
+                    getActiveAnomaliesUseCase = getAnomaliesUseCase,
+                    clearAnomaliesUseCase = clearAnomaliesUseCase
                 ) as T
             }
         }

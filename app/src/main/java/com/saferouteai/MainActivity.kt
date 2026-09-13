@@ -57,6 +57,10 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    // Anomaly Detection Engine
+    private val anomalyRepository by lazy { com.saferouteai.data.repository.InMemoryAnomalyRepository() }
+    private val anomalyDetector by lazy { com.saferouteai.domain.anomaly.JourneyAnomalyDetector() }
+
     // ViewModels
     private val journeyViewModel: JourneyViewModel by viewModels {
         JourneyViewModel.provideFactory(
@@ -65,7 +69,9 @@ class MainActivity : ComponentActivity() {
             consentRepository = consentRepository,
             permissionChecker = permissionChecker,
             journeySessionRepository = journeySessionRepository,
-            clock = clock
+            clock = clock,
+            anomalyRepository = anomalyRepository,
+            anomalyDetector = anomalyDetector
         )
     }
 

@@ -4,19 +4,23 @@ SafeRoute AI is a personal safety journey application designed to accompany user
 
 ---
 
-## Current Milestone: Milestone 3 - Safe Journey Session Engine & Local Safety Checkpoints
+## Current Milestone: Milestone 4 - Local Journey Anomaly Intelligence
 
-Milestone 3 implements the central architectural foundation for an active **Safe Journey Session** in SafeRoute AI, integrating the dual-gated foreground location tracking foundation (from Milestone 2B) with a deterministic 8-state session state machine, Room session persistence, and local, non-alarmist safety checkpoints.
+Milestone 4 implements a deterministic, explainable, and local anomaly-detection engine on top of the active `JourneySession` and foreground location foundation.
 
 > [!NOTE]
-> **Key Architecture & Privacy Invariants in Milestone 3**:
-> * **Hard Location Start Gate**: A Safe Journey Session strictly requires verified location readiness before entering `ACTIVE`. If explicit location consent (`locationSharingConsent == true`) or Android runtime location permission is missing, the session does not silently start in a degraded mode; it returns a typed `StartJourneyError` and leaves the session in `IDLE`.
-> * **Injectable Clock Abstraction**: Domain time operations, durations, and checkpoint calculations depend on `Clock { fun nowEpochMs(): Long }`. Production uses `SystemClock`, while unit tests use `FakeClock` with `advanceTimeBy()` for 100% deterministic, zero-sleep testing.
-> * **Strict Persistent vs. Volatile Memory Boundary**:
->   - **Room Database (`SafeRouteDatabase` v2)** persists high-level session metadata only (`sessionId`, `status`, start/end timestamps, checkpoint timestamps) via `JourneySessionEntity`.
->   - **Volatile In-Memory RAM**: Real-time `UserLocation` coordinates are dynamically streamed through `StateFlow` and **never** persisted to SQLite or written as historical breadcrumb tracks.
-> * **Local, Non-Alarmist Safety Checkpoints**: Configurable periodic check-ins (`CheckpointPolicy`) prompt the user via the foreground UI ("Safety Check-In" -> "I'm Okay" / "End Journey"). Missed checkpoints record a local safety signal only and do **NOT** trigger external alerts, SMS broadcasts, or 911 calls.
-> * **Strict Non-Goals Preserved**: Zero automatic journey detection, route deviation, audio AI, speech recognition, risk scoring, cloud sync, Firebase, background location, or external telemetry.
+> **Key Architecture & Privacy Invariants in Milestone 4**:
+> * **Deterministic & Explainable Baseline**: Every anomaly is derived from pure, verifiable geometric and temporal heuristics (`JourneyAnomalyDetector`). Zero black-box ML models, cloud inference, or unpredictable heuristics.
+> * **Strict Safety Invariants**:
+>   - `ANOMALY != DANGER`
+>   - `ANOMALY != EMERGENCY`
+>   - `ANOMALY != AUTOMATIC ALERT`
+>   - Anomalies represent localized contextual observations for the user; they do **not** trigger SOS, contact dispatch, SMS broadcasts, or 911 calls.
+> * **Pure Domain Geodesics (`GeoMath`)**: Haversine distance, initial bearing, angular delta, and cross-track polyline distance calculations are implemented in pure Kotlin with zero Android framework dependencies (`android.location.Location` is prohibited in domain).
+> * **Volatile In-Memory Repository (`InMemoryAnomalyRepository`)**: Observations and sliding-window histories (max 30 items) exist solely in RAM. Zero Room persistence, zero disk caching, and zero historical breadcrumbs. Cleared permanently when a journey ends, cancels, or resets.
+> * **Data Quality & Accuracy Gating**: Locations with horizontal accuracy > 50m are filtered out to prevent false positives in high-reflection or urban-canyon environments.
+> * **Calm, Non-Alarmist Presentation (`JourneySignalsCard`)**: Informative, low-anxiety indicators surface signals cleanly within the active journey dashboard.
+> * **Strict Non-Goals Preserved**: Zero audio/microphone processing, speech recognition, risk scoring, cloud sync, Firebase, background location, or external telemetry.
 
 ---
 
@@ -37,7 +41,7 @@ Milestone 3 implements the central architectural foundation for an active **Safe
 * **Architecture**: Clean Architecture + Unidirectional Data Flow (MVVM)
 * **Asynchronous Streams**: Kotlin Coroutines & `StateFlow`
 * **Lifecycle & Navigation**: AndroidX Lifecycle ViewModel & Navigation Compose
-* **Testing**: JUnit 4 & `kotlinx-coroutines-test` (113 unit tests, 0 failures)
+* **Testing**: JUnit 4 & `kotlinx-coroutines-test` (138 unit tests, 0 failures)
 
 ---
 
@@ -53,6 +57,8 @@ app/src/main/java/com/saferouteai/
 ├── domain/
 │   ├── time/
 │   │   └── Clock.kt                            # Injectable Clock interface (nowEpochMs)
+│   ├── anomaly/
+│   │   └── JourneyAnomalyDetector.kt           # Pure deterministic anomaly engine
 │   ├── model/
 │   │   ├── ContactRelationship.kt              # Neutral relationship taxonomy (Parent, Sibling, Partner, etc.)
 │   │   ├── Journey.kt                          # Core domain journey entity
@@ -60,6 +66,13 @@ app/src/main/java/com/saferouteai/
 │   │   ├── TrustedContact.kt                   # Contact model with validation rules
 │   │   ├── UserConsent.kt                      # Explicit consent model (defaults false)
 │   │   ├── UserProfile.kt                      # Local user profile model
+│   │   ├── anomaly/
+│   │   │   ├── AnomalyDetectionPolicy.kt       # Configurable anomaly policy thresholds
+│   │   │   ├── AnomalySeverity.kt              # LOW, MEDIUM, HIGH severity enum
+│   │   │   ├── AnomalySignal.kt                # Pure domain anomaly signal entity
+│   │   │   ├── AnomalyType.kt                  # PROLONGED_STOP, ROUTE_DEVIATION, etc.
+│   │   │   ├── ExpectedRoute.kt                # Route polyline & corridor model
+│   │   │   └── GeoMath.kt                      # Pure Kotlin spherical math utilities
 │   │   ├── location/
 │   │   │   ├── LocationError.kt                # Location domain errors (Gates, Provider, etc.)
 │   │   │   ├── LocationPermissionStatus.kt     # Permission status enum (NOT_REQUESTED, DENIED, etc.)
@@ -72,6 +85,7 @@ app/src/main/java/com/saferouteai/
 │   │       ├── SessionStatus.kt                # Strict 8-state machine enum
 │   │       └── StartJourneyError.kt            # Typed start-gate domain error hierarchy
 │   ├── repository/
+│   │   ├── AnomalyRepository.kt                # Milestone 4 anomaly storage contract
 │   │   ├── ConsentRepository.kt                # Consent storage interface
 │   │   ├── JourneyRepository.kt                # Foundation journey repository contract
 │   │   ├── JourneySessionRepository.kt         # Milestone 3 Safe Journey session engine contract
@@ -80,6 +94,10 @@ app/src/main/java/com/saferouteai/
 │   │   ├── TrustedContactsRepository.kt        # Trusted contacts repository contract
 │   │   └── UserProfileRepository.kt            # Profile repository contract
 │   └── usecase/
+│       ├── anomaly/
+│       │   ├── ClearAnomaliesUseCase.kt        # Reset/purge active anomaly state
+│       │   ├── EvaluateJourneyAnomaliesUseCase.kt# Evaluate current session & location
+│       │   └── GetActiveAnomaliesUseCase.kt    # Flow stream of active anomalies
 │       ├── location/
 │       │   ├── GetLocationTrackingStateUseCase.kt
 │       │   ├── GetLocationUpdatesUseCase.kt
@@ -117,6 +135,7 @@ app/src/main/java/com/saferouteai/
 │   └── repository/
 │       ├── DataStoreConsentRepository.kt       # DataStore backed consent repository
 │       ├── FusedLocationRepository.kt          # Fused location tracking repository
+│       ├── InMemoryAnomalyRepository.kt        # Thread-safe volatile sliding window
 │       ├── InMemoryConsentRepository.kt        # Test double
 │       ├── InMemoryJourneyRepository.kt        # Test double
 │       ├── InMemoryJourneySessionRepository.kt # Pure JVM test double with FakeClock
@@ -129,10 +148,11 @@ app/src/main/java/com/saferouteai/
 ├── presentation/
 │   ├── home/
 │   │   ├── HomeScreen.kt                       # Safe Journey dashboard with session & checkpoints
-│   │   ├── JourneyUiState.kt                   # UI state with session, duration, and checkpoint state
-│   │   ├── JourneyViewModel.kt                 # Coordinates session lifecycle & dual gates
+│   │   ├── JourneyUiState.kt                   # UI state with session, checkpoints & active anomalies
+│   │   ├── JourneyViewModel.kt                 # Coordinates session lifecycle, location & anomalies
 │   │   └── components/
 │   │       ├── CheckpointStatusCard.kt         # Visual card showing check-in status / countdown
+│   │       ├── JourneySignalsCard.kt           # Calm, non-alarmist active anomaly card
 │   │       ├── LocationPreflightDialog.kt      # Dual-gate permission & consent explanation dialog
 │   │       ├── LocationStatusCard.kt           # Real-time coordinates & qualitative accuracy
 │   │       └── SafetyCheckInDialog.kt          # Foreground check-in modal ("I'm Okay" / "End Journey")
@@ -158,7 +178,7 @@ This project is configured to build entirely via the Gradle command line without
    ```powershell
    .\gradlew.bat testDebugUnitTest
    ```
-   Executes **113 unit tests** (0 failures) covering domain state machines, fake-clock temporal scheduling, hard-gated session use cases, Room DAO entities, and ViewModels.
+   Executes **138 unit tests** (0 failures) covering pure spherical geodesics, anomaly detector heuristics, sliding window retention, dual-gate location verification, session state machines, Room DAO entities, and ViewModels.
 
 2. **Assemble Debug APK**:
    ```powershell
@@ -171,6 +191,7 @@ This project is configured to build entirely via the Gradle command line without
 
 ## Future Roadmap
 
-* **Milestone 4**: On-Device Acoustic Intelligence & Wake-Word Distress Detection.
-* **Milestone 5**: Multi-Signal Risk Assessment & Dynamic Safety Tier Engine.
-* **Milestone 6**: Emergency Protocol Dispatch, Incident Logging, and SOS Coordination.
+* **Milestone 5**: On-Device Acoustic Intelligence & Wake-Word Distress Detection.
+* **Milestone 6**: Multi-Signal Risk Assessment & Dynamic Safety Tier Engine.
+* **Milestone 7**: Emergency Protocol Dispatch, Incident Logging, and SOS Coordination.
+

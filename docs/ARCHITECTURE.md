@@ -205,11 +205,93 @@ Strict transitions enforced by `SessionStatus`:
 
 ---
 
-## 7. Future Module Boundaries & Isolation
+## 7. Local Journey Anomaly Intelligence (Milestone 4)
 
-1. **Audio & Speech Intelligence (`AudioIntelligenceRepository`, `SpeechIntelligenceRepository`) — Milestone 4**:
+Milestone 4 introduces a deterministic, explainable, and local anomaly-detection engine on top of the active `JourneySession` and foreground location foundation.
+
+```
+                  ┌─────────────────────────────────────┐
+                  │    Active Safe Journey Session      │
+                  │  (SessionStatus + Location Stream)  │
+                  └──────────────────┬──────────────────┘
+                                     │
+                                     ▼
+                  ┌─────────────────────────────────────┐
+                  │       JourneyAnomalyDetector        │
+                  │     (Pure Kotlin Domain Engine)     │
+                  │  - Quality Filtering (Accuracy Cap) │
+                  │  - Prolonged Stop Heuristic         │
+                  │  - Route Deviation (Corridor)       │
+                  │  - Duration Anomaly Heuristic       │
+                  │  - Unusual Movement / Sudden Speed  │
+                  └──────────────────┬──────────────────┘
+                                     │
+                                     ▼
+                  ┌─────────────────────────────────────┐
+                  │      Typed AnomalySignal Objects    │
+                  │ (PROLONGED_STOP, ROUTE_DEVIATION,   │
+                  │  DURATION_ANOMALY, UNUSUAL_MOVEMENT)│
+                  └──────────────────┬──────────────────┘
+                                     │
+                                     ▼
+                  ┌─────────────────────────────────────┐
+                  │      InMemoryAnomalyRepository      │
+                  │ (Sliding Window RAM, Zero Disk I/O) │
+                  └──────────────────┬──────────────────┘
+                                     │
+                                     ▼
+                  ┌─────────────────────────────────────┐
+                  │         JourneySignalsCard          │
+                  │  (Calm, Informative Presentation)   │
+                  └─────────────────────────────────────┘
+```
+
+### Core Architecture & Privacy Invariants
+
+1. **Deterministic & Explainable Baseline**:
+   - Every anomaly is computed using transparent geometric and temporal rules.
+   - Zero opaque machine learning models, cloud inference, or black-box heuristics.
+   - Serves as the stable ground truth that future ML/AI models can build upon.
+
+2. **Crucial Safety Distinctions (Invariants)**:
+   - `ANOMALY != DANGER`
+   - `ANOMALY != EMERGENCY`
+   - `ANOMALY != AUTOMATIC ALERT`
+   - Anomalies represent localized contextual observations for the user; they do **not** trigger SOS, contact dispatch, SMS broadcasts, or 911 calls.
+
+3. **Pure Domain Geodesics (`GeoMath`)**:
+   - Pure Kotlin spherical mathematics (Haversine distance, great-circle forward bearing, angular difference, perpendicular point-to-polyline corridor distance).
+   - Zero Android framework dependencies (`android.location.Location` is completely absent from the domain layer).
+
+4. **Transient In-Memory Repository (`InMemoryAnomalyRepository`)**:
+   - Anomalies and recent observation histories are maintained strictly in volatile RAM using a thread-safe sliding window (default: max 30 observations).
+   - Zero Room persistence, zero disk caching, and zero historical breadcrumbs.
+   - Cleared permanently when a journey ends, cancels, or resets.
+
+5. **Data Quality & Accuracy Gating**:
+   - Locations with horizontal accuracy exceeding `maxAccuracyThresholdMeters` (default: 50 m) or without speed readings are filtered or flagged as low-confidence to eliminate false positives in urban canyons.
+
+6. **Calm, Non-Alarmist UI (`JourneySignalsCard`)**:
+   - Surfaces active observations calmly with informative descriptions (e.g., *"Journey duration has exceeded the estimated arrival window"* or *"Movement has remained stationary for 10 minutes"*).
+   - Does not employ flashing red alarms, screeching sirens, or anxiety-inducing dialogs.
+
+### Heuristic Detection Rules & Default Policies
+
+| Heuristic | Type | Default Threshold | Severity | Description |
+|---|---|---|---|---|
+| **Prolonged Stop** | `PROLONGED_STOP` | Stationary (< 35m) for ≥ 10 min with speed < 0.5 m/s | `MEDIUM` | Detects when progress ceases unexpectedly during travel. |
+| **Route Deviation** | `ROUTE_DEVIATION` | Distance from polyline > 100 m | `HIGH` if > 250m, `MEDIUM` otherwise | Flags departure from the pre-agreed travel corridor. |
+| **Duration Anomaly** | `DURATION_ANOMALY` | Elapsed time > 1.5x expected journey duration | `MEDIUM` | Flags journeys significantly overrunning the estimated arrival. |
+| **Unusual Movement** | `UNUSUAL_MOVEMENT` | Speed spike > 30 m/s (~108 km/h) or > 120° bearing delta at speed | `MEDIUM` | Flags unnatural velocity shifts or sudden directional reversals. |
+
+---
+
+## 8. Future Module Boundaries & Isolation
+
+1. **Audio & Speech Intelligence (`AudioIntelligenceRepository`, `SpeechIntelligenceRepository`) — Milestone 5**:
    - On-device acoustic anomaly and wake-word/distress classifiers.
-2. **Risk Assessment (`RiskAssessmentRepository`) — Milestone 5**:
+2. **Multi-Signal Risk Assessment (`RiskAssessmentRepository`) — Milestone 6**:
    - Multi-signal sensor fusion engine aggregating temporal, spatial, and acoustic signals.
-3. **Incident Management & SOS (`IncidentRepository`) — Milestone 6**:
+3. **Emergency Incident Management & SOS (`IncidentRepository`) — Milestone 7**:
    - SMS/call dispatch and emergency protocol coordination to enabled `TrustedContact` entities.
+
