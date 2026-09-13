@@ -3,6 +3,7 @@ package com.saferouteai.data.repository
 import com.saferouteai.core.result.Result
 import com.saferouteai.data.audio.AndroidAudioRecordDataSource
 import com.saferouteai.domain.audio.AcousticSignalDetector
+import com.saferouteai.domain.audio.DeterministicAcousticSignalDetector
 import com.saferouteai.domain.audio.NoOpAcousticSignalDetector
 import com.saferouteai.domain.model.audio.AcousticSignal
 import com.saferouteai.domain.model.audio.AudioCaptureState
@@ -32,8 +33,8 @@ class AndroidAudioRepository(
     private val permissionChecker: AudioPermissionChecker,
     private val consentRepository: ConsentRepository,
     private val journeySessionRepository: JourneySessionRepository? = null,
-    private val detector: AcousticSignalDetector = NoOpAcousticSignalDetector(),
     private val policy: AudioDetectionPolicy = AudioDetectionPolicy(),
+    private val detector: AcousticSignalDetector = DeterministicAcousticSignalDetector(policy),
     private val externalScope: CoroutineScope = CoroutineScope(Dispatchers.Default)
 ) : AudioRepository {
 

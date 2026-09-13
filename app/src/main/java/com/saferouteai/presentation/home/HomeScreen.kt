@@ -257,6 +257,7 @@ fun HomeScreen(
                     audioCaptureState = uiState.audioCaptureState,
                     isAudioConsentGranted = uiState.isAudioConsentGranted,
                     isAudioPermissionGranted = uiState.isAudioPermissionGranted,
+                    acousticSignals = uiState.acousticSignals,
                     onRequestPermission = {
                         requestAudioPermissionLauncher()
                     },

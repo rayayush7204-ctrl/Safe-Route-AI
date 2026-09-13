@@ -10,5 +10,8 @@ package com.saferouteai.domain.model.audio
 enum class AcousticSignalType {
     WAKE_WORD,
     DISTRESS_KEYWORD,
-    VOCAL_STRESS_PATTERN
+    VOCAL_STRESS_PATTERN,
+    SCREAM_OR_SHOUT,
+    SUDDEN_LOUD_IMPACT,
+    PERSISTENT_DISTRESS_COMMOTION
 }

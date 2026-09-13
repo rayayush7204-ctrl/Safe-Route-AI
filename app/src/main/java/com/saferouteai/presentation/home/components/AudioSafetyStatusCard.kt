@@ -27,28 +27,38 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.saferouteai.domain.model.audio.AcousticSignal
+import com.saferouteai.domain.model.audio.AcousticSignalType
 import com.saferouteai.domain.model.audio.AudioCaptureState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Displays the current audio capture pipeline status during an active Safe Journey.
- * Shows capture state, consent/permission readiness, and a pulsing indicator when actively capturing.
+ * Shows capture state, consent/permission readiness, a pulsing indicator when actively capturing,
+ * and calm, factual acoustic observations when detected.
  */
 @Composable
 fun AudioSafetyStatusCard(
     audioCaptureState: AudioCaptureState,
     isAudioConsentGranted: Boolean,
     isAudioPermissionGranted: Boolean,
+    acousticSignals: List<AcousticSignal> = emptyList(),
     onRequestPermission: () -> Unit = {},
     onStartCapture: () -> Unit = {},
     onStopCapture: () -> Unit = {},
@@ -248,6 +258,82 @@ fun AudioSafetyStatusCard(
                         )
                     }
                 }
+            }
+
+            // Milestone 5B: Recent Factual Acoustic Observations
+            if (acousticSignals.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Recent Acoustic Observations",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
+                acousticSignals.takeLast(3).reversed().forEach { signal ->
+                    AcousticObservationRow(signal)
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AcousticObservationRow(signal: AcousticSignal) {
+    val typeLabel = when (signal.type) {
+        AcousticSignalType.SUDDEN_LOUD_IMPACT -> "Loud Impulse"
+        AcousticSignalType.SCREAM_OR_SHOUT -> "Sustained Vocalization"
+        AcousticSignalType.PERSISTENT_DISTRESS_COMMOTION -> "Elevated Commotion"
+        AcousticSignalType.DISTRESS_KEYWORD -> "Distress Keyword"
+        AcousticSignalType.WAKE_WORD -> "Wake Word"
+        AcousticSignalType.VOCAL_STRESS_PATTERN -> "Vocal Stress"
+    }
+
+    val timeFormatted = remember(signal.detectedAtEpochMs) {
+        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        sdf.format(Date(signal.detectedAtEpochMs))
+    }
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = typeLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = timeFormatted,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = signal.explanation,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (signal.confidence != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Detector strength: ${(signal.confidence * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
         }
     }

@@ -2,6 +2,7 @@ package com.saferouteai.data.repository
 
 import com.saferouteai.core.result.Result
 import com.saferouteai.domain.audio.AcousticSignalDetector
+import com.saferouteai.domain.audio.DeterministicAcousticSignalDetector
 import com.saferouteai.domain.audio.NoOpAcousticSignalDetector
 import com.saferouteai.domain.model.audio.AcousticSignal
 import com.saferouteai.domain.model.audio.AudioCaptureState
@@ -27,8 +28,8 @@ class InMemoryAudioRepository(
     private val permissionChecker: AudioPermissionChecker? = null,
     private val consentRepository: ConsentRepository? = null,
     private val journeySessionRepository: JourneySessionRepository? = null,
-    private val detector: AcousticSignalDetector = NoOpAcousticSignalDetector(),
-    private val policy: AudioDetectionPolicy = AudioDetectionPolicy()
+    private val policy: AudioDetectionPolicy = AudioDetectionPolicy(),
+    private val detector: AcousticSignalDetector = DeterministicAcousticSignalDetector(policy)
 ) : AudioRepository {
 
     private val mutex = Mutex()

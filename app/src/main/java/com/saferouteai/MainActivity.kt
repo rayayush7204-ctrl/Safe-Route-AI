@@ -16,6 +16,8 @@ import com.saferouteai.data.repository.FusedLocationRepository
 import com.saferouteai.data.repository.InMemoryJourneyRepository
 import com.saferouteai.data.repository.RoomTrustedContactsRepository
 import com.saferouteai.data.repository.RoomUserProfileRepository
+import com.saferouteai.domain.audio.DeterministicAcousticSignalDetector
+import com.saferouteai.domain.model.audio.AudioDetectionPolicy
 import com.saferouteai.presentation.consent.ConsentViewModel
 import com.saferouteai.presentation.contacts.TrustedContactsViewModel
 import com.saferouteai.presentation.home.JourneyViewModel
@@ -64,15 +66,19 @@ class MainActivity : ComponentActivity() {
     private val anomalyRepository by lazy { com.saferouteai.data.repository.InMemoryAnomalyRepository() }
     private val anomalyDetector by lazy { com.saferouteai.domain.anomaly.JourneyAnomalyDetector() }
 
-    // Milestone 5A: Audio Capture Pipeline
+    // Milestone 5A & 5B: Audio Capture & Acoustic Signal Detection Engine
     private val audioPermissionChecker by lazy { AndroidAudioPermissionChecker(applicationContext) }
     private val audioRecordDataSource by lazy { AndroidAudioRecordDataSource(clock) }
+    private val audioDetectionPolicy by lazy { AudioDetectionPolicy() }
+    private val acousticSignalDetector by lazy { DeterministicAcousticSignalDetector(audioDetectionPolicy) }
     private val audioRepository by lazy {
         AndroidAudioRepository(
             audioRecordDataSource = audioRecordDataSource,
             permissionChecker = audioPermissionChecker,
             consentRepository = consentRepository,
-            journeySessionRepository = journeySessionRepository
+            journeySessionRepository = journeySessionRepository,
+            policy = audioDetectionPolicy,
+            detector = acousticSignalDetector
         )
     }
 
