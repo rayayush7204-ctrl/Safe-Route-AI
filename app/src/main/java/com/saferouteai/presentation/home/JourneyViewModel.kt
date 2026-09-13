@@ -4,14 +4,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.saferouteai.core.result.Result
+import com.saferouteai.data.time.SystemClock
 import com.saferouteai.domain.model.JourneyState
 import com.saferouteai.domain.model.location.LocationPermissionStatus
 import com.saferouteai.domain.model.location.LocationTrackingState
 import com.saferouteai.domain.model.location.UserLocation
+import com.saferouteai.domain.model.session.CheckpointPolicy
+import com.saferouteai.domain.model.session.CheckpointState
+import com.saferouteai.domain.model.session.JourneySession
+import com.saferouteai.domain.model.session.SessionStatus
+import com.saferouteai.domain.model.session.StartJourneyError
 import com.saferouteai.domain.repository.ConsentRepository
 import com.saferouteai.domain.repository.JourneyRepository
+import com.saferouteai.domain.repository.JourneySessionRepository
 import com.saferouteai.domain.repository.LocationPermissionChecker
 import com.saferouteai.domain.repository.LocationRepository
+import com.saferouteai.domain.time.Clock
 import com.saferouteai.domain.usecase.EndJourneyUseCase
 import com.saferouteai.domain.usecase.GetJourneyStateUseCase
 import com.saferouteai.domain.usecase.ResetJourneyUseCase
@@ -20,6 +28,12 @@ import com.saferouteai.domain.usecase.location.PauseLocationTrackingUseCase
 import com.saferouteai.domain.usecase.location.ResumeLocationTrackingUseCase
 import com.saferouteai.domain.usecase.location.StartLocationTrackingUseCase
 import com.saferouteai.domain.usecase.location.StopLocationTrackingUseCase
+import com.saferouteai.domain.usecase.session.AcknowledgeCheckpointUseCase
+import com.saferouteai.domain.usecase.session.CancelJourneySessionUseCase
+import com.saferouteai.domain.usecase.session.EndJourneySessionUseCase
+import com.saferouteai.domain.usecase.session.ResetJourneySessionUseCase
+import com.saferouteai.domain.usecase.session.StartJourneyException
+import com.saferouteai.domain.usecase.session.StartJourneySessionUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +44,8 @@ import kotlinx.coroutines.launch
 
 /**
  * ViewModel managing the UI state and user interactions for the SafeRoute home journey flow.
- * Coordinates Journey lifecycle and dual-gated foreground Location tracking.
+ * Coordinates Journey lifecycle, dual-gated foreground Location tracking, and the Milestone 3
+ * Safe Journey Session Engine with local periodic checkpoints.
  */
 class JourneyViewModel(
     private val startJourneyUseCase: StartJourneyUseCase,
@@ -43,12 +58,21 @@ class JourneyViewModel(
     private val resumeLocationTrackingUseCase: ResumeLocationTrackingUseCase? = null,
     private val locationRepository: LocationRepository? = null,
     private val consentRepository: ConsentRepository? = null,
-    private val permissionChecker: LocationPermissionChecker? = null
+    private val permissionChecker: LocationPermissionChecker? = null,
+    // Milestone 3 Session Engine additions:
+    private val startJourneySessionUseCase: StartJourneySessionUseCase? = null,
+    private val endJourneySessionUseCase: EndJourneySessionUseCase? = null,
+    private val cancelJourneySessionUseCase: CancelJourneySessionUseCase? = null,
+    private val acknowledgeCheckpointUseCase: AcknowledgeCheckpointUseCase? = null,
+    private val resetJourneySessionUseCase: ResetJourneySessionUseCase? = null,
+    private val journeySessionRepository: JourneySessionRepository? = null,
+    private val clock: Clock = SystemClock()
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
     private val _errorMessage = MutableStateFlow<String?>(null)
     private val _showPreflightDialog = MutableStateFlow(false)
+    private val _showSafetyCheckInDialog = MutableStateFlow(false)
 
     private val consentFlow = consentRepository?.getConsent()?.let { flow ->
         combine(flow) { it[0] }
@@ -57,6 +81,8 @@ class JourneyViewModel(
     private val permissionStatusFlow = permissionChecker?.permissionStatus ?: flowOf(LocationPermissionStatus.NOT_REQUESTED)
     private val trackingStateFlow = locationRepository?.trackingState ?: flowOf(LocationTrackingState.IDLE)
     private val currentLocationFlow = locationRepository?.currentLocation ?: flowOf(null)
+    private val activeSessionFlow = journeySessionRepository?.activeSession ?: flowOf(null)
+    private val sessionStatusFlow = journeySessionRepository?.sessionStatus ?: flowOf(SessionStatus.IDLE)
 
     val uiState: StateFlow<JourneyUiState> = combine(
         getJourneyStateUseCase(),
@@ -64,7 +90,10 @@ class JourneyViewModel(
         currentLocationFlow,
         consentFlow,
         permissionStatusFlow,
+        activeSessionFlow,
+        sessionStatusFlow,
         _showPreflightDialog,
+        _showSafetyCheckInDialog,
         _isLoading,
         _errorMessage
     ) { args: Array<Any?> ->
@@ -73,22 +102,39 @@ class JourneyViewModel(
         val currentLocation = args[2] as? UserLocation
         val consent = args[3] as? com.saferouteai.domain.model.UserConsent
         val permissionStatus = args[4] as LocationPermissionStatus
-        val showPreflight = args[5] as Boolean
-        val isLoading = args[6] as Boolean
-        val errorMessage = args[7] as? String
+        val session = args[5] as? JourneySession
+        val sessionStatus = args[6] as SessionStatus
+        val showPreflight = args[7] as Boolean
+        val showCheckInDialog = args[8] as Boolean
+        val isLoading = args[9] as Boolean
+        val errorMessage = args[10] as? String
 
         val isConsentGranted = consent?.locationSharingConsent ?: false
         val isPermissionGranted = permissionStatus.isGranted
 
+        val elapsedDurationMs = session?.calculateDurationMs(clock) ?: 0L
+        val nextCheckpointRemainingMs = session?.nextCheckpointEpochMs?.let { next ->
+            (next - clock.nowEpochMs()).coerceAtLeast(0L)
+        }
+
+        // Auto-show check-in dialog when status is CHECKPOINT_DUE unless dismissed
+        val effectiveShowCheckIn = showCheckInDialog || sessionStatus == SessionStatus.CHECKPOINT_DUE
+
         JourneyUiState(
             journeyState = journeyState,
             locationTrackingState = trackingState,
-            currentLocation = currentLocation,
+            currentLocation = currentLocation ?: session?.latestLocation,
             isConsentGranted = isConsentGranted,
             isPermissionGranted = isPermissionGranted,
             showPreflightDialog = showPreflight,
             isLoading = isLoading,
-            errorMessage = errorMessage
+            errorMessage = errorMessage,
+            session = session,
+            sessionStatus = sessionStatus,
+            checkpointState = session?.checkpointState ?: CheckpointState.DISARMED,
+            nextCheckpointRemainingMs = nextCheckpointRemainingMs,
+            showSafetyCheckInDialog = effectiveShowCheckIn,
+            elapsedDurationMs = elapsedDurationMs
         )
     }.stateIn(
         scope = viewModelScope,
@@ -98,6 +144,7 @@ class JourneyViewModel(
 
     fun onStartJourneyClicked() {
         val currentState = uiState.value
+        // Hard start gate: if location prerequisites are missing, trigger preflight or permission prompt
         if (!currentState.canTrackLocation) {
             _showPreflightDialog.value = true
             return
@@ -107,10 +154,9 @@ class JourneyViewModel(
 
     /**
      * Backward-compatible programmatic start method.
-     * Starts tracking if use case is provided and gates are met, or directly starts journey if in legacy mode.
      */
     fun startJourney() {
-        if (startLocationTrackingUseCase == null) {
+        if (startLocationTrackingUseCase == null && startJourneySessionUseCase == null) {
             startJourneyAndTracking()
         } else {
             onStartJourneyClicked()
@@ -129,16 +175,40 @@ class JourneyViewModel(
             _errorMessage.value = null
             _showPreflightDialog.value = false
 
-            when (val journeyResult = startJourneyUseCase()) {
-                is Result.Success -> {
-                    startLocationTrackingUseCase?.invoke()?.let { trackingResult ->
-                        if (trackingResult is Result.Error) {
-                            _errorMessage.value = trackingResult.exception.localizedMessage
+            // Hard start gate via Milestone 3 Session Engine if configured
+            if (startJourneySessionUseCase != null) {
+                when (val result = startJourneySessionUseCase(policy = CheckpointPolicy())) {
+                    is Result.Success -> {
+                        // Also sync legacy journey repository state for backward compatibility
+                        startJourneyUseCase()
+                    }
+                    is Result.Error -> {
+                        val ex = result.exception
+                        if (ex is StartJourneyException) {
+                            when (ex.error) {
+                                StartJourneyError.ConsentRequired -> _showPreflightDialog.value = true
+                                StartJourneyError.PermissionRequired -> _showPreflightDialog.value = true
+                                is StartJourneyError.InvalidState -> _errorMessage.value = "Cannot start journey: ${ex.error.currentStatus}"
+                                is StartJourneyError.StorageError -> _errorMessage.value = ex.error.message
+                            }
+                        } else {
+                            _errorMessage.value = ex.localizedMessage ?: "Failed to start safe journey"
                         }
                     }
                 }
-                is Result.Error -> {
-                    _errorMessage.value = journeyResult.exception.localizedMessage ?: "Failed to start journey"
+            } else {
+                // Fallback for legacy Milestone 1 / 2B tests without Session UseCase
+                when (val journeyResult = startJourneyUseCase()) {
+                    is Result.Success -> {
+                        startLocationTrackingUseCase?.invoke()?.let { trackingResult ->
+                            if (trackingResult is Result.Error) {
+                                _errorMessage.value = trackingResult.exception.localizedMessage
+                            }
+                        }
+                    }
+                    is Result.Error -> {
+                        _errorMessage.value = journeyResult.exception.localizedMessage ?: "Failed to start journey"
+                    }
                 }
             }
             _isLoading.value = false
@@ -149,19 +219,57 @@ class JourneyViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
+            _showSafetyCheckInDialog.value = false
 
-            // Stop location tracking and clear volatile coordinates
-            stopLocationTrackingUseCase?.invoke()
-
-            when (val result = endJourneyUseCase()) {
-                is Result.Success -> {
-                    // Journey completed
+            if (endJourneySessionUseCase != null) {
+                when (val result = endJourneySessionUseCase.invoke()) {
+                    is Result.Success -> {
+                        endJourneyUseCase()
+                    }
+                    is Result.Error -> {
+                        _errorMessage.value = result.exception.localizedMessage ?: "Failed to end journey"
+                    }
                 }
-                is Result.Error -> {
-                    _errorMessage.value = result.exception.localizedMessage ?: "Failed to end journey"
+            } else {
+                stopLocationTrackingUseCase?.invoke()
+                when (val result = endJourneyUseCase()) {
+                    is Result.Success -> { /* Completed */ }
+                    is Result.Error -> {
+                        _errorMessage.value = result.exception.localizedMessage ?: "Failed to end journey"
+                    }
                 }
             }
             _isLoading.value = false
+        }
+    }
+
+    fun cancelJourney() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _errorMessage.value = null
+            _showSafetyCheckInDialog.value = false
+
+            if (cancelJourneySessionUseCase != null) {
+                when (val result = cancelJourneySessionUseCase.invoke()) {
+                    is Result.Success -> {
+                        endJourneyUseCase()
+                    }
+                    is Result.Error -> {
+                        _errorMessage.value = result.exception.localizedMessage ?: "Failed to cancel journey"
+                    }
+                }
+            } else {
+                stopLocationTrackingUseCase?.invoke()
+                endJourneyUseCase()
+            }
+            _isLoading.value = false
+        }
+    }
+
+    fun onAcknowledgeCheckpoint() {
+        viewModelScope.launch {
+            _showSafetyCheckInDialog.value = false
+            acknowledgeCheckpointUseCase?.invoke()
         }
     }
 
@@ -169,10 +277,24 @@ class JourneyViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
+            _showSafetyCheckInDialog.value = false
             stopLocationTrackingUseCase?.invoke()
+            resetJourneySessionUseCase?.invoke()
             resetJourneyUseCase?.invoke()
             _isLoading.value = false
         }
+    }
+
+    fun dismissSafetyCheckInDialog() {
+        _showSafetyCheckInDialog.value = false
+    }
+
+    fun dismissPreflightDialog() {
+        _showPreflightDialog.value = false
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
     }
 
     /**
@@ -199,20 +321,14 @@ class JourneyViewModel(
         }
     }
 
-    fun dismissPreflightDialog() {
-        _showPreflightDialog.value = false
-    }
-
-    fun clearError() {
-        _errorMessage.value = null
-    }
-
     companion object {
         fun provideFactory(
             journeyRepository: JourneyRepository,
             locationRepository: LocationRepository? = null,
             consentRepository: ConsentRepository? = null,
-            permissionChecker: LocationPermissionChecker? = null
+            permissionChecker: LocationPermissionChecker? = null,
+            journeySessionRepository: JourneySessionRepository? = null,
+            clock: Clock = SystemClock()
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -226,6 +342,27 @@ class JourneyViewModel(
                     ResumeLocationTrackingUseCase(locationRepository, consentRepository, permissionChecker)
                 } else null
 
+                val startSessionUseCase = if (journeySessionRepository != null && consentRepository != null && permissionChecker != null && startTrackingUseCase != null && stopTrackingUseCase != null) {
+                    StartJourneySessionUseCase(
+                        sessionRepository = journeySessionRepository,
+                        consentRepository = consentRepository,
+                        permissionChecker = permissionChecker,
+                        startLocationTrackingUseCase = startTrackingUseCase,
+                        stopLocationTrackingUseCase = stopTrackingUseCase
+                    )
+                } else null
+
+                val endSessionUseCase = if (journeySessionRepository != null && stopTrackingUseCase != null) {
+                    EndJourneySessionUseCase(journeySessionRepository, stopTrackingUseCase)
+                } else null
+
+                val cancelSessionUseCase = if (journeySessionRepository != null && stopTrackingUseCase != null) {
+                    CancelJourneySessionUseCase(journeySessionRepository, stopTrackingUseCase)
+                } else null
+
+                val ackCheckpointUseCase = journeySessionRepository?.let { AcknowledgeCheckpointUseCase(it) }
+                val resetSessionUseCase = journeySessionRepository?.let { ResetJourneySessionUseCase(it) }
+
                 return JourneyViewModel(
                     startJourneyUseCase = StartJourneyUseCase(journeyRepository),
                     endJourneyUseCase = EndJourneyUseCase(journeyRepository),
@@ -237,7 +374,14 @@ class JourneyViewModel(
                     resumeLocationTrackingUseCase = resumeTrackingUseCase,
                     locationRepository = locationRepository,
                     consentRepository = consentRepository,
-                    permissionChecker = permissionChecker
+                    permissionChecker = permissionChecker,
+                    startJourneySessionUseCase = startSessionUseCase,
+                    endJourneySessionUseCase = endSessionUseCase,
+                    cancelJourneySessionUseCase = cancelSessionUseCase,
+                    acknowledgeCheckpointUseCase = ackCheckpointUseCase,
+                    resetJourneySessionUseCase = resetSessionUseCase,
+                    journeySessionRepository = journeySessionRepository,
+                    clock = clock
                 ) as T
             }
         }

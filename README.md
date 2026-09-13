@@ -4,17 +4,19 @@ SafeRoute AI is a personal safety journey application designed to accompany user
 
 ---
 
-## Current Milestone: Milestone 2B - Foreground Location Foundation & User-Controlled Tracking
+## Current Milestone: Milestone 3 - Safe Journey Session Engine & Local Safety Checkpoints
 
-Milestone 2B implements a strictly foreground-only, dual-gated geolocation tracking foundation during active Safe Journeys.
+Milestone 3 implements the central architectural foundation for an active **Safe Journey Session** in SafeRoute AI, integrating the dual-gated foreground location tracking foundation (from Milestone 2B) with a deterministic 8-state session state machine, Room session persistence, and local, non-alarmist safety checkpoints.
 
 > [!NOTE]
-> **Privacy & Location Tracking Invariants**:
-> * **Strict Dual-Gate Invariant**: Location tracking **strictly requires BOTH** Android runtime location permission (`ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`) AND explicit `locationSharingConsent == true` in UserConsent. Neither condition alone is sufficient.
-> * **Strictly Foreground-Only**: Zero background tracking (`ACCESS_BACKGROUND_LOCATION` is prohibited). Tracking operates purely while the application Activity is in the foreground (`TRACKING`). When the Activity leaves the foreground, tracking automatically transitions to `PAUSED` and ceases emissions.
-> * **Qualitative Accuracy UI**: Uses Android's approximate-location behavior as the source of truth, presenting qualitative feedback (*"Approximate location active — some location features may be less accurate."*) rather than arbitrary hardcoded radius numbers.
-> * **Volatile In-Memory Coordinates**: Live coordinates are streamed via StateFlow in volatile memory only. Coordinates are **never** persisted to Room, written to disk, or transmitted to any backend. Ending a journey always transitions tracking to `STOPPED` and permanently clears volatile location state.
-> * **Zero Cloud Telemetry**: Zero Firebase, WebSockets, cloud transmission, audio recording, AI inference, or background services.
+> **Key Architecture & Privacy Invariants in Milestone 3**:
+> * **Hard Location Start Gate**: A Safe Journey Session strictly requires verified location readiness before entering `ACTIVE`. If explicit location consent (`locationSharingConsent == true`) or Android runtime location permission is missing, the session does not silently start in a degraded mode; it returns a typed `StartJourneyError` and leaves the session in `IDLE`.
+> * **Injectable Clock Abstraction**: Domain time operations, durations, and checkpoint calculations depend on `Clock { fun nowEpochMs(): Long }`. Production uses `SystemClock`, while unit tests use `FakeClock` with `advanceTimeBy()` for 100% deterministic, zero-sleep testing.
+> * **Strict Persistent vs. Volatile Memory Boundary**:
+>   - **Room Database (`SafeRouteDatabase` v2)** persists high-level session metadata only (`sessionId`, `status`, start/end timestamps, checkpoint timestamps) via `JourneySessionEntity`.
+>   - **Volatile In-Memory RAM**: Real-time `UserLocation` coordinates are dynamically streamed through `StateFlow` and **never** persisted to SQLite or written as historical breadcrumb tracks.
+> * **Local, Non-Alarmist Safety Checkpoints**: Configurable periodic check-ins (`CheckpointPolicy`) prompt the user via the foreground UI ("Safety Check-In" -> "I'm Okay" / "End Journey"). Missed checkpoints record a local safety signal only and do **NOT** trigger external alerts, SMS broadcasts, or 911 calls.
+> * **Strict Non-Goals Preserved**: Zero automatic journey detection, route deviation, audio AI, speech recognition, risk scoring, cloud sync, Firebase, background location, or external telemetry.
 
 ---
 
@@ -23,7 +25,7 @@ Milestone 2B implements a strictly foreground-only, dual-gated geolocation track
 * **Language**: Kotlin 2.0.21
 * **Symbol Processing**: KSP `2.0.21-1.0.28`
 * **Google Play Services Location**: `21.3.0` (FusedLocationProviderClient, Priority.PRIORITY_HIGH_ACCURACY)
-* **Local Database**: AndroidX Room `2.8.5` (Entities, DAOs, Flow streams)
+* **Local Database**: AndroidX Room `2.8.5` (Entities, DAOs, Flow streams) - Schema Version 2
 * **Lightweight Storage**: AndroidX DataStore Preferences `1.2.1`
 * **UI Toolkit**: Jetpack Compose with Material 3
 * **Compose Compiler**: Gradle Plugin (`org.jetbrains.kotlin.plugin.compose:2.0.21`)
@@ -35,7 +37,7 @@ Milestone 2B implements a strictly foreground-only, dual-gated geolocation track
 * **Architecture**: Clean Architecture + Unidirectional Data Flow (MVVM)
 * **Asynchronous Streams**: Kotlin Coroutines & `StateFlow`
 * **Lifecycle & Navigation**: AndroidX Lifecycle ViewModel & Navigation Compose
-* **Testing**: JUnit 4 & `kotlinx-coroutines-test`
+* **Testing**: JUnit 4 & `kotlinx-coroutines-test` (113 unit tests, 0 failures)
 
 ---
 
@@ -49,105 +51,95 @@ app/src/main/java/com/saferouteai/
 │   └── result/
 │       └── Result.kt                           # Sealed Result monad for typed success/failure
 ├── domain/
+│   ├── time/
+│   │   └── Clock.kt                            # Injectable Clock interface (nowEpochMs)
 │   ├── model/
-│   │   ├── ContactRelationship.kt              # Neutral relationship taxonomy (Parent, Sibling, Partner, Friend, Other)
+│   │   ├── ContactRelationship.kt              # Neutral relationship taxonomy (Parent, Sibling, Partner, etc.)
 │   │   ├── Journey.kt                          # Core domain journey entity
-│   │   ├── JourneyState.kt                     # Domain state machine (IDLE, ACTIVE, COMPLETED)
+│   │   ├── JourneyState.kt                     # Foundation state machine (IDLE, ACTIVE, COMPLETED)
 │   │   ├── TrustedContact.kt                   # Contact model with validation rules
 │   │   ├── UserConsent.kt                      # Explicit consent model (defaults false)
 │   │   ├── UserProfile.kt                      # Local user profile model
-│   │   └── location/
-│   │       ├── LocationError.kt                # Location domain errors (Gates, Provider, etc.)
-│   │       ├── LocationPermissionStatus.kt     # Fine / Coarse / Denied status
-│   │       ├── LocationTrackingState.kt        # IDLE, READY, TRACKING, PAUSED, ERROR, STOPPED
-│   │       └── UserLocation.kt                 # Volatile in-memory location model
+│   │   ├── location/
+│   │   │   ├── LocationError.kt                # Location domain errors (Gates, Provider, etc.)
+│   │   │   ├── LocationPermissionStatus.kt     # Permission status enum (NOT_REQUESTED, DENIED, etc.)
+│   │   │   ├── LocationTrackingState.kt        # Foreground tracking state machine (IDLE, TRACKING, etc.)
+│   │   │   └── UserLocation.kt                 # Pure domain geographic location model
+│   │   └── session/
+│   │       ├── CheckpointPolicy.kt             # Configurable local checkpoint timing policy
+│   │       ├── CheckpointState.kt              # Checkpoint status (SCHEDULED, DUE, ACKNOWLEDGED, MISSED)
+│   │       ├── JourneySession.kt               # Central Safe Journey Session domain model
+│   │       ├── SessionStatus.kt                # Strict 8-state machine enum
+│   │       └── StartJourneyError.kt            # Typed start-gate domain error hierarchy
 │   ├── repository/
-│   │   ├── ConsentRepository.kt                # Contract for user consent flags
-│   │   ├── JourneyRepository.kt                # Journey state management contract
-│   │   ├── LocationPermissionChecker.kt        # Contract for runtime permission inspection
-│   │   ├── LocationRepository.kt               # Contract for foreground tracking & state
-│   │   ├── TrustedContactsRepository.kt        # Trusted contact CRUD contract
-│   │   └── UserProfileRepository.kt            # Profile persistence contract
+│   │   ├── ConsentRepository.kt                # Consent storage interface
+│   │   ├── JourneyRepository.kt                # Foundation journey repository contract
+│   │   ├── JourneySessionRepository.kt         # Milestone 3 Safe Journey session engine contract
+│   │   ├── LocationPermissionChecker.kt        # Abstract runtime permission checker
+│   │   ├── LocationRepository.kt               # Location tracking repository contract
+│   │   ├── TrustedContactsRepository.kt        # Trusted contacts repository contract
+│   │   └── UserProfileRepository.kt            # Profile repository contract
 │   └── usecase/
-│       ├── AddTrustedContactUseCase.kt         # Validates & creates trusted contact
-│       ├── EndJourneyUseCase.kt                # Concludes active journey
-│       ├── GetConsentUseCase.kt                # Observes consent flow
-│       ├── GetJourneyStateUseCase.kt           # Observes journey state flow
-│       ├── GetTrustedContactsUseCase.kt        # Observes contact list flow
-│       ├── GetUserProfileUseCase.kt            # Observes user profile flow
-│       ├── RemoveTrustedContactUseCase.kt      # Deletes contact by ID
-│       ├── ResetJourneyUseCase.kt              # Resets journey to IDLE
-│       ├── SaveUserProfileUseCase.kt           # Validates & saves profile
-│       ├── SetContactEnabledUseCase.kt         # Toggles contact active state
-│       ├── StartJourneyUseCase.kt              # Initiates journey
-│       ├── UpdateConsentUseCase.kt             # Explicit consent mutator
-│       ├── UpdateTrustedContactUseCase.kt      # Validates & updates contact
-│       └── location/
-│           ├── GetLocationTrackingStateUseCase.kt # Observes tracking state flow
-│           ├── GetLocationUpdatesUseCase.kt       # Observes location stream
-│           ├── PauseLocationTrackingUseCase.kt    # Pauses tracking on background
-│           ├── ResumeLocationTrackingUseCase.kt   # Dual-gate validated resume
-│           ├── StartLocationTrackingUseCase.kt    # Dual-gate validated start
-│           └── StopLocationTrackingUseCase.kt     # Halts tracking & clears coordinates
+│       ├── location/
+│       │   ├── GetLocationTrackingStateUseCase.kt
+│       │   ├── GetLocationUpdatesUseCase.kt
+│       │   ├── PauseLocationTrackingUseCase.kt
+│       │   ├── ResumeLocationTrackingUseCase.kt
+│       │   ├── StartLocationTrackingUseCase.kt
+│       │   └── StopLocationTrackingUseCase.kt
+│       └── session/
+│           ├── AcknowledgeCheckpointUseCase.kt # "I'm Okay" checkpoint acknowledgement
+│           ├── CancelJourneySessionUseCase.kt  # User-initiated journey cancellation
+│           ├── EndJourneySessionUseCase.kt     # Graceful completion & location shutdown
+│           ├── GetActiveJourneySessionUseCase.kt
+│           ├── ResetJourneySessionUseCase.kt   # Terminal state reset to IDLE
+│           ├── StartJourneySessionUseCase.kt   # Hard-gated session start
+│           └── TriggerCheckpointDueUseCase.kt  # Checkpoint due trigger
 ├── data/
+│   ├── time/
+│   │   └── SystemClock.kt                      # Production Clock implementation
 │   ├── local/
-│   │   ├── SafeRouteDatabase.kt                # Room database (Room 2.8.5)
+│   │   ├── SafeRouteDatabase.kt                # Room Database (v2)
 │   │   ├── dao/
-│   │   │   ├── TrustedContactDao.kt            # Room DAO for contacts
-│   │   │   └── UserProfileDao.kt               # Room DAO for profile
+│   │   │   ├── JourneySessionDao.kt            # Session metadata DAO
+│   │   │   ├── TrustedContactDao.kt            # Contacts DAO
+│   │   │   └── UserProfileDao.kt               # Profile DAO
 │   │   ├── datastore/
 │   │   │   └── ConsentDataStore.kt             # DataStore Preferences wrapper
 │   │   └── entity/
-│   │       ├── TrustedContactEntity.kt         # Room entity for trusted_contacts
-│   │       └── UserProfileEntity.kt            # Room entity for user_profile
+│   │       ├── JourneySessionEntity.kt         # Session metadata entity (no coordinates)
+│   │       ├── TrustedContactEntity.kt         # Contacts SQLite entity
+│   │       └── UserProfileEntity.kt            # Profile SQLite entity
 │   ├── location/
-│   │   ├── AndroidLocationPermissionChecker.kt # Context-based permission inspector
-│   │   ├── FusedLocationDataSource.kt          # Play Services FusedLocation callback wrapper
-│   │   └── LocationMapper.kt                   # Android Location -> UserLocation mapper
+│   │   ├── AndroidLocationPermissionChecker.kt # Android context-backed permission checker
+│   │   ├── FusedLocationDataSource.kt          # Play Services FusedLocationProviderClient wrapper
+│   │   └── LocationMapper.kt                   # Maps android.location.Location -> UserLocation
 │   └── repository/
 │       ├── DataStoreConsentRepository.kt       # DataStore backed consent repository
-│       ├── FusedLocationRepository.kt          # Play Services backed location repository
-│       ├── InMemoryConsentRepository.kt        # Pure in-memory repository (for testing)
-│       ├── InMemoryJourneyRepository.kt        # Thread-safe journey repository
-│       ├── InMemoryLocationRepository.kt       # Pure in-memory location repository (for testing)
-│       ├── InMemoryTrustedContactsRepository.kt# Pure in-memory repository (for testing)
-│       ├── InMemoryUserProfileRepository.kt    # Pure in-memory repository (for testing)
-│       ├── RoomTrustedContactsRepository.kt    # Room backed contacts repository
-│       └── RoomUserProfileRepository.kt        # Room backed profile repository
+│       ├── FusedLocationRepository.kt          # Fused location tracking repository
+│       ├── InMemoryConsentRepository.kt        # Test double
+│       ├── InMemoryJourneyRepository.kt        # Test double
+│       ├── InMemoryJourneySessionRepository.kt # Pure JVM test double with FakeClock
+│       ├── InMemoryLocationRepository.kt       # Test double
+│       ├── InMemoryTrustedContactsRepository.kt# Test double
+│       ├── InMemoryUserProfileRepository.kt    # Test double
+│       ├── RoomJourneySessionRepository.kt     # Production session repository (Room + volatile coords)
+│       ├── RoomTrustedContactsRepository.kt    # Production Room contacts repository
+│       └── RoomUserProfileRepository.kt        # Production Room profile repository
 ├── presentation/
-│   ├── common/
-│   │   ├── SectionCard.kt                      # M3 surface card component
-│   │   └── StatusBadge.kt                      # Journey status indicator pill
-│   ├── consent/
-│   │   ├── ConsentUiState.kt                   # State model for consent screen
-│   │   ├── ConsentViewModel.kt                 # Consent toggle ViewModel
-│   │   └── PrivacyConsentScreen.kt             # Transparent consent & privacy screen
-│   ├── contacts/
-│   │   ├── AddEditContactDialog.kt             # Dialog for adding/editing contacts
-│   │   ├── TrustedContactsScreen.kt            # Contact list & management screen
-│   │   ├── TrustedContactsUiState.kt           # Contacts UI state model
-│   │   └── TrustedContactsViewModel.kt         # Contacts ViewModel
 │   ├── home/
-│   │   ├── HomeScreen.kt                       # Primary journey dashboard
-│   │   ├── JourneyUiState.kt                   # Journey UI state model with location
-│   │   ├── JourneyViewModel.kt                 # Journey & location tracking coordinator
-│   │   ├── LocationPermissionLauncher.kt       # Rememberable launcher for dual permissions
-│   │   ├── LocationPreflightDialog.kt          # Preflight explanation dialog
-│   │   └── LocationStatusCard.kt               # Live location card & qualitative accuracy
-│   ├── profile/
-│   │   ├── ProfileScreen.kt                    # Profile editor screen
-│   │   ├── ProfileUiState.kt                   # Profile UI state model
-│   │   └── ProfileViewModel.kt                 # Profile ViewModel
-│   ├── settings/
-│   │   └── SettingsScreen.kt                   # Settings hub linking to sub-flows
+│   │   ├── HomeScreen.kt                       # Safe Journey dashboard with session & checkpoints
+│   │   ├── JourneyUiState.kt                   # UI state with session, duration, and checkpoint state
+│   │   ├── JourneyViewModel.kt                 # Coordinates session lifecycle & dual gates
+│   │   └── components/
+│   │       ├── CheckpointStatusCard.kt         # Visual card showing check-in status / countdown
+│   │       ├── LocationPreflightDialog.kt      # Dual-gate permission & consent explanation dialog
+│   │       ├── LocationStatusCard.kt           # Real-time coordinates & qualitative accuracy
+│   │       └── SafetyCheckInDialog.kt          # Foreground check-in modal ("I'm Okay" / "End Journey")
 │   ├── navigation/
 │   │   ├── SafeRouteNavHost.kt                 # Navigation host with all routes
-│   │   └── Screen.kt                           # Route definitions (Home, Settings, Profile, Contacts, Consent)
-│   └── theme/
-│       ├── Color.kt                            # Material 3 color system
-│       ├── Theme.kt                            # Material 3 Theme wrapper
-│       └── Type.kt                             # Typography scale
-└── MainActivity.kt                             # Activity with onStart/onStop lifecycle hooks
+│   │   └── Screen.kt                           # Route definitions
+│   └── MainActivity.kt                         # Entry point with DI wiring & lifecycle forwarding
 ```
 
 ---
@@ -166,7 +158,7 @@ This project is configured to build entirely via the Gradle command line without
    ```powershell
    .\gradlew.bat testDebugUnitTest
    ```
-   Executes 74 unit tests across domain models, use cases, view models, lifecycle transitions, and dual-gate security validations.
+   Executes **113 unit tests** (0 failures) covering domain state machines, fake-clock temporal scheduling, hard-gated session use cases, Room DAO entities, and ViewModels.
 
 2. **Assemble Debug APK**:
    ```powershell
@@ -179,7 +171,6 @@ This project is configured to build entirely via the Gradle command line without
 
 ## Future Roadmap
 
-* **Milestone 3**: Local Safety Session & Anomaly Heuristics (local session persistence, timed checkpoints, deviation/stopped-motion alerts).
 * **Milestone 4**: On-Device Acoustic Intelligence & Wake-Word Distress Detection.
 * **Milestone 5**: Multi-Signal Risk Assessment & Dynamic Safety Tier Engine.
 * **Milestone 6**: Emergency Protocol Dispatch, Incident Logging, and SOS Coordination.

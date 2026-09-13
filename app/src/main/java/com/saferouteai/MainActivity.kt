@@ -47,13 +47,25 @@ class MainActivity : ComponentActivity() {
         FusedLocationRepository(locationDataSource, permissionChecker)
     }
 
+    // Session Engine & Clock
+    private val clock by lazy { com.saferouteai.data.time.SystemClock() }
+    private val journeySessionRepository by lazy {
+        com.saferouteai.data.repository.RoomJourneySessionRepository(
+            dao = database.journeySessionDao(),
+            locationRepository = locationRepository,
+            clock = clock
+        )
+    }
+
     // ViewModels
     private val journeyViewModel: JourneyViewModel by viewModels {
         JourneyViewModel.provideFactory(
             journeyRepository = journeyRepository,
             locationRepository = locationRepository,
             consentRepository = consentRepository,
-            permissionChecker = permissionChecker
+            permissionChecker = permissionChecker,
+            journeySessionRepository = journeySessionRepository,
+            clock = clock
         )
     }
 

@@ -153,13 +153,63 @@ Milestone 2B introduces real-time geolocation strictly scoped to the foreground 
 
 ---
 
-## 6. Future Module Boundaries & Isolation
+## 6. Safe Journey Session Engine & Local Safety Checkpoints (Milestone 3)
 
-1. **Local Safety Session & Anomaly Heuristics — Milestone 3**:
-   - Session metadata persistence, timed checkpoints, stopped motion detection, and route deviation indicators.
-2. **Audio & Speech Intelligence (`AudioIntelligenceRepository`, `SpeechIntelligenceRepository`) — Milestone 4**:
+Milestone 3 establishes the **`JourneySession`** as the central, unified lifecycle object for personal safety monitoring.
+
+```
+                      ┌────────────────────────┐
+                      │    Session Engine      │
+                      │    (JourneySession)    │
+                      └───────────┬────────────┘
+                                  │
+         ┌────────────────────────┼────────────────────────┐
+         │                        │                        │
+         ▼                        ▼                        ▼
+┌─────────────────┐      ┌─────────────────┐      ┌──────────────────┐
+│ Session Status  │      │ Location Stream │      │ Checkpoint Engine│
+│  State Machine  │      │  (Volatile RAM) │      │  (Configurable)  │
+│(8 Strict States)│      │  (Dual-Gated)   │      │ (Non-Alarmist)   │
+└─────────────────┘      └─────────────────┘      └──────────────────┘
+```
+
+### 1. Hard Location Start Gate
+* A session **cannot enter `ACTIVE`** unless both location consent and Android runtime location permission are verified.
+* If either gate fails, the use case returns a typed `StartJourneyError.ConsentRequired` or `StartJourneyError.PermissionRequired`.
+* The application surfaces the preflight dialog and leaves the session in `IDLE`. Degraded "location-less" journeys are forbidden in Milestone 3.
+
+### 2. Injectable Time Abstraction (`Clock`)
+* All temporal calculations (`calculateDurationMs`, checkpoint intervals, expiry evaluations) are mediated by `Clock { fun nowEpochMs(): Long }`.
+* Production uses `SystemClock`, while tests use `FakeClock(initialEpochMs)`.
+* Enables 100% deterministic, instant JVM test runs with zero `Thread.sleep()` or coroutine delays.
+
+### 3. Persistent Metadata vs. Volatile Coordinates Boundary
+* **Room Database (`journey_sessions` table, `SafeRouteDatabase` v2)**:
+  - Persists `sessionId`, `status`, `startedAtEpochMs`, `endedAtEpochMs`, `origin`, `destination`, `lastCheckpointEpochMs`, `nextCheckpointEpochMs`, and `checkpointState`.
+  - On application process restart, uncompleted sessions can be restored from Room.
+* **Transient In-Memory Coordinates**:
+  - Real-time `UserLocation` (lat, lon, accuracy) is fused in RAM into the `activeSession` StateFlow stream from `LocationRepository`.
+  - Coordinates are **never** persisted to SQLite, preventing location breadcrumb tracking.
+
+### 4. Deterministic Session Status State Machine
+Strict transitions enforced by `SessionStatus`:
+* `IDLE -> STARTING -> ACTIVE`
+* `ACTIVE -> CHECKPOINT_DUE -> CHECKPOINT_ACKNOWLEDGED -> ACTIVE`
+* `ACTIVE / CHECKPOINT_* -> COMPLETING -> COMPLETED -> IDLE`
+* `STARTING / ACTIVE / CHECKPOINT_* -> CANCELLED -> IDLE`
+
+### 5. Local Safety Checkpoints
+* Driven by `CheckpointPolicy(enabled, intervalMs, acknowledgementWindowMs)` (default: 15-minute interval, 3-minute grace window).
+* Prompts user with a non-alarmist foreground UI: **"Safety Check-In"** -> **"I'm Okay"** or **"End Journey"**.
+* Expiry without acknowledgment transitions checkpoint status to `MISSED` (records a local safety signal only; does **not** trigger external alerts, contact dispatch, or SOS).
+
+---
+
+## 7. Future Module Boundaries & Isolation
+
+1. **Audio & Speech Intelligence (`AudioIntelligenceRepository`, `SpeechIntelligenceRepository`) — Milestone 4**:
    - On-device acoustic anomaly and wake-word/distress classifiers.
-3. **Risk Assessment (`RiskAssessmentRepository`) — Milestone 5**:
-   - Sensor fusion engine aggregating temporal, spatial, and acoustic signals.
-4. **Incident Management & SOS (`IncidentRepository`) — Milestone 6**:
+2. **Risk Assessment (`RiskAssessmentRepository`) — Milestone 5**:
+   - Multi-signal sensor fusion engine aggregating temporal, spatial, and acoustic signals.
+3. **Incident Management & SOS (`IncidentRepository`) — Milestone 6**:
    - SMS/call dispatch and emergency protocol coordination to enabled `TrustedContact` entities.

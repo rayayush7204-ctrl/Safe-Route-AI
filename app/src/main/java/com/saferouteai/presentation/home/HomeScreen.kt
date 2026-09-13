@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -43,14 +44,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saferouteai.domain.model.JourneyState
+import com.saferouteai.domain.model.session.SessionStatus
 import com.saferouteai.presentation.common.SectionCard
 import com.saferouteai.presentation.common.StatusBadge
+import com.saferouteai.presentation.home.components.CheckpointStatusCard
 import com.saferouteai.presentation.home.components.LocationPreflightDialog
 import com.saferouteai.presentation.home.components.LocationStatusCard
+import com.saferouteai.presentation.home.components.SafetyCheckInDialog
 import com.saferouteai.presentation.permission.rememberLocationPermissionLauncher
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -184,36 +189,64 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = when (uiState.journeyState) {
-                            JourneyState.IDLE -> "Ready to accompany you. Tap below to begin a safe journey."
-                            JourneyState.ACTIVE -> "Safe journey session is active. Foreground location is monitoring."
-                            JourneyState.COMPLETED -> "Your safe journey session has successfully concluded."
+                        text = when {
+                            uiState.sessionStatus == SessionStatus.CHECKPOINT_DUE ->
+                                "Safety Check-In is due! Tap below to confirm you are safe."
+                            uiState.isJourneyActive ->
+                                "Safe Journey session is active. Foreground tracking and periodic safety checkpoints armed."
+                            uiState.isJourneyCompleted ->
+                                "Your Safe Journey session has concluded normally."
+                            uiState.isJourneyCancelled ->
+                                "Your Safe Journey session was cancelled."
+                            else ->
+                                "Ready to accompany you. Tap below to begin a safe journey."
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 8.dp)
                     )
+
+                    if (uiState.isJourneyActive && uiState.elapsedDurationMs > 0) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val elapsedSeconds = uiState.elapsedDurationMs / 1000L
+                        val minutes = elapsedSeconds / 60
+                        val seconds = elapsedSeconds % 60
+                        Text(
+                            text = "Elapsed Time: ${String.format("%02d:%02d", minutes, seconds)}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
             // Real-Time Location Card during Active Journey
             if (uiState.isJourneyActive) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 LocationStatusCard(
                     trackingState = uiState.locationTrackingState,
                     location = uiState.currentLocation
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                // Local Safety Checkpoint Card
+                CheckpointStatusCard(
+                    checkpointState = uiState.checkpointState,
+                    nextCheckpointRemainingMs = uiState.nextCheckpointRemainingMs,
+                    onCheckInClicked = { viewModel.onAcknowledgeCheckpoint() }
                 )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Primary Action Button
+            // Primary Action Buttons
             if (uiState.isLoading) {
                 CircularProgressIndicator(modifier = Modifier.size(48.dp))
             } else {
-                when (uiState.journeyState) {
-                    JourneyState.IDLE -> {
+                when {
+                    !uiState.isJourneyActive && !uiState.isJourneyCompleted && !uiState.isJourneyCancelled -> {
                         Button(
                             onClick = { viewModel.onStartJourneyClicked() },
                             modifier = Modifier
@@ -237,31 +270,54 @@ fun HomeScreen(
                         }
                     }
 
-                    JourneyState.ACTIVE -> {
-                        Button(
-                            onClick = { viewModel.endJourney() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.StopCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "End Journey",
-                                style = MaterialTheme.typography.labelLarge
-                            )
+                    uiState.isJourneyActive -> {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { viewModel.endJourney() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.StopCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "End Journey",
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedButton(
+                                onClick = { viewModel.cancelJourney() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cancel,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Cancel Journey",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
                         }
                     }
 
-                    JourneyState.COMPLETED -> {
+                    uiState.isJourneyCompleted || uiState.isJourneyCancelled -> {
                         Button(
                             onClick = { viewModel.resetJourney() },
                             modifier = Modifier
@@ -279,7 +335,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Start Safe Journey",
+                                text = "Start Another Journey",
                                 style = MaterialTheme.typography.labelLarge
                             )
                         }
@@ -313,14 +369,24 @@ fun HomeScreen(
 
             // Privacy & Architecture Foundation Notice
             SectionCard(
-                title = "Foreground-Only Privacy",
-                description = "Dual-gated tracking requires both in-app consent and Android permission. Zero background polling or remote data storage.",
+                title = "Local Safety Engine",
+                description = "Strictly foreground-only tracking and local periodic check-ins. Session metadata is stored locally; zero location history or cloud telemetry.",
                 icon = Icons.Default.Info,
-                trailingTag = "Dual-Gated"
+                trailingTag = "Local Only"
             )
         }
     }
 
+    // Safety Check-In Dialog
+    if (uiState.showSafetyCheckInDialog) {
+        SafetyCheckInDialog(
+            onAcknowledge = { viewModel.onAcknowledgeCheckpoint() },
+            onEndJourney = { viewModel.endJourney() },
+            onDismiss = { viewModel.dismissSafetyCheckInDialog() }
+        )
+    }
+
+    // Preflight Dialog for Dual-Gated Permissions
     if (uiState.showPreflightDialog) {
         LocationPreflightDialog(
             isConsentGranted = uiState.isConsentGranted,
