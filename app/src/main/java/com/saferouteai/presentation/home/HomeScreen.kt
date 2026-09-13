@@ -52,11 +52,13 @@ import com.saferouteai.domain.model.JourneyState
 import com.saferouteai.domain.model.session.SessionStatus
 import com.saferouteai.presentation.common.SectionCard
 import com.saferouteai.presentation.common.StatusBadge
+import com.saferouteai.presentation.home.components.AudioSafetyStatusCard
 import com.saferouteai.presentation.home.components.CheckpointStatusCard
 import com.saferouteai.presentation.home.components.JourneySignalsCard
 import com.saferouteai.presentation.home.components.LocationPreflightDialog
 import com.saferouteai.presentation.home.components.LocationStatusCard
 import com.saferouteai.presentation.home.components.SafetyCheckInDialog
+import com.saferouteai.presentation.permission.rememberAudioPermissionLauncher
 import com.saferouteai.presentation.permission.rememberLocationPermissionLauncher
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +73,10 @@ fun HomeScreen(
 
     val requestPermissionLauncher = rememberLocationPermissionLauncher { status ->
         viewModel.onPermissionResult(status)
+    }
+
+    val requestAudioPermissionLauncher = rememberAudioPermissionLauncher { status ->
+        viewModel.onAudioPermissionResult(status)
     }
 
     LaunchedEffect(uiState.errorMessage) {
@@ -244,6 +250,23 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     JourneySignalsCard(signals = uiState.activeAnomalies)
                 }
+
+                // Milestone 5A: Audio Safety Pipeline Status Card
+                Spacer(modifier = Modifier.height(16.dp))
+                AudioSafetyStatusCard(
+                    audioCaptureState = uiState.audioCaptureState,
+                    isAudioConsentGranted = uiState.isAudioConsentGranted,
+                    isAudioPermissionGranted = uiState.isAudioPermissionGranted,
+                    onRequestPermission = {
+                        requestAudioPermissionLauncher()
+                    },
+                    onStartCapture = {
+                        viewModel.startAudioCapture()
+                    },
+                    onStopCapture = {
+                        viewModel.stopAudioCapture()
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))

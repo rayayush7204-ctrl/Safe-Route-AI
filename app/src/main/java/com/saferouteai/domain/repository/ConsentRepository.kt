@@ -27,4 +27,9 @@ interface ConsentRepository {
      * Updates trusted contact sharing consent explicitly.
      */
     suspend fun setTrustedContactSharingConsent(enabled: Boolean): Result<Unit>
+
+    /**
+     * Updates local audio processing consent explicitly.
+     */
+    suspend fun setAudioProcessingConsent(enabled: Boolean): Result<Unit>
 }

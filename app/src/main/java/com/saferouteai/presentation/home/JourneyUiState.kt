@@ -34,7 +34,13 @@ data class JourneyUiState(
     // Milestone 4 Local Journey Anomaly Intelligence additions:
     val activeAnomalies: List<AnomalySignal> = emptyList(),
     val expectedRoute: ExpectedRoute? = null,
-    val expectedDurationMs: Long? = null
+    val expectedDurationMs: Long? = null,
+    // Milestone 5A Secure Audio Pipeline additions:
+    val audioCaptureState: com.saferouteai.domain.model.audio.AudioCaptureState = com.saferouteai.domain.model.audio.AudioCaptureState.IDLE,
+    val isAudioConsentGranted: Boolean = false,
+    val isAudioPermissionGranted: Boolean = false,
+    val acousticSignals: List<com.saferouteai.domain.model.audio.AcousticSignal> = emptyList(),
+    val showAudioConsentRationaleDialog: Boolean = false
 ) {
     val isJourneyActive: Boolean
         get() = sessionStatus.isActiveSession || journeyState == JourneyState.ACTIVE
@@ -47,4 +53,10 @@ data class JourneyUiState(
 
     val canTrackLocation: Boolean
         get() = isConsentGranted && isPermissionGranted
+
+    val canCaptureAudio: Boolean
+        get() = isAudioConsentGranted && isAudioPermissionGranted && isJourneyActive
+
+    val isAudioCapturing: Boolean
+        get() = audioCaptureState.isCapturing
 }

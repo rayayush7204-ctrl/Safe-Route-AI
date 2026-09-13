@@ -9,6 +9,8 @@ import com.saferouteai.domain.anomaly.JourneyAnomalyDetector
 import com.saferouteai.domain.model.JourneyState
 import com.saferouteai.domain.model.anomaly.AnomalySignal
 import com.saferouteai.domain.model.anomaly.ExpectedRoute
+import com.saferouteai.domain.model.audio.AudioCaptureState
+import com.saferouteai.domain.model.audio.AudioPermissionStatus
 import com.saferouteai.domain.model.location.LocationPermissionStatus
 import com.saferouteai.domain.model.location.LocationTrackingState
 import com.saferouteai.domain.model.location.UserLocation
@@ -18,6 +20,8 @@ import com.saferouteai.domain.model.session.JourneySession
 import com.saferouteai.domain.model.session.SessionStatus
 import com.saferouteai.domain.model.session.StartJourneyError
 import com.saferouteai.domain.repository.AnomalyRepository
+import com.saferouteai.domain.repository.AudioPermissionChecker
+import com.saferouteai.domain.repository.AudioRepository
 import com.saferouteai.domain.repository.ConsentRepository
 import com.saferouteai.domain.repository.JourneyRepository
 import com.saferouteai.domain.repository.JourneySessionRepository
@@ -79,7 +83,10 @@ class JourneyViewModel(
     // Milestone 4 Anomaly Intelligence additions:
     private val evaluateJourneyAnomaliesUseCase: EvaluateJourneyAnomaliesUseCase? = null,
     private val getActiveAnomaliesUseCase: GetActiveAnomaliesUseCase? = null,
-    private val clearAnomaliesUseCase: ClearAnomaliesUseCase? = null
+    private val clearAnomaliesUseCase: ClearAnomaliesUseCase? = null,
+    // Milestone 5A Secure Audio Pipeline additions:
+    private val audioRepository: AudioRepository? = null,
+    private val audioPermissionChecker: AudioPermissionChecker? = null
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
@@ -99,6 +106,9 @@ class JourneyViewModel(
     private val activeSessionFlow = journeySessionRepository?.activeSession ?: flowOf(null)
     private val sessionStatusFlow = journeySessionRepository?.sessionStatus ?: flowOf(SessionStatus.IDLE)
     private val activeAnomaliesFlow = getActiveAnomaliesUseCase?.invoke() ?: flowOf(emptyList())
+    private val audioCaptureStateFlow = audioRepository?.captureState ?: flowOf(AudioCaptureState.IDLE)
+    private val audioPermissionFlow = audioPermissionChecker?.permissionStatus ?: flowOf(AudioPermissionStatus.NOT_REQUESTED)
+    private val acousticSignalsFlow = audioRepository?.acousticSignals ?: flowOf(emptyList())
 
     val uiState: StateFlow<JourneyUiState> = combine(
         getJourneyStateUseCase(),
@@ -114,7 +124,10 @@ class JourneyViewModel(
         _showPreflightDialog,
         _showSafetyCheckInDialog,
         _isLoading,
-        _errorMessage
+        _errorMessage,
+        audioCaptureStateFlow,
+        audioPermissionFlow,
+        acousticSignalsFlow
     ) { args: Array<Any?> ->
         val journeyState = args[0] as JourneyState
         val trackingState = args[1] as LocationTrackingState
@@ -131,9 +144,15 @@ class JourneyViewModel(
         val showCheckInDialog = args[11] as Boolean
         val isLoading = args[12] as Boolean
         val errorMessage = args[13] as? String
+        val audioCaptureState = args[14] as AudioCaptureState
+        val audioPermStatus = args[15] as AudioPermissionStatus
+        @Suppress("UNCHECKED_CAST")
+        val acousticSignals = args[16] as List<com.saferouteai.domain.model.audio.AcousticSignal>
 
         val isConsentGranted = consent?.locationSharingConsent ?: false
         val isPermissionGranted = permissionStatus.isGranted
+        val isAudioConsentGranted = consent?.audioProcessingConsent ?: false
+        val isAudioPermissionGranted = audioPermStatus.isGranted
 
         val elapsedDurationMs = session?.calculateDurationMs(clock) ?: 0L
         val nextCheckpointRemainingMs = session?.nextCheckpointEpochMs?.let { next ->
@@ -160,7 +179,11 @@ class JourneyViewModel(
             elapsedDurationMs = elapsedDurationMs,
             activeAnomalies = activeAnomalies,
             expectedRoute = expectedRoute,
-            expectedDurationMs = expectedDurationMs
+            expectedDurationMs = expectedDurationMs,
+            audioCaptureState = audioCaptureState,
+            isAudioConsentGranted = isAudioConsentGranted,
+            isAudioPermissionGranted = isAudioPermissionGranted,
+            acousticSignals = acousticSignals
         )
     }.stateIn(
         scope = viewModelScope,
@@ -272,6 +295,8 @@ class JourneyViewModel(
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
             clearAnomaliesUseCase?.invoke()
+            audioRepository?.stopCapture()
+            audioRepository?.clearSignals()
 
             if (endJourneySessionUseCase != null) {
                 when (val result = endJourneySessionUseCase.invoke()) {
@@ -301,6 +326,8 @@ class JourneyViewModel(
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
             clearAnomaliesUseCase?.invoke()
+            audioRepository?.stopCapture()
+            audioRepository?.clearSignals()
 
             if (cancelJourneySessionUseCase != null) {
                 when (val result = cancelJourneySessionUseCase.invoke()) {
@@ -332,6 +359,8 @@ class JourneyViewModel(
             _errorMessage.value = null
             _showSafetyCheckInDialog.value = false
             clearAnomaliesUseCase?.invoke()
+            audioRepository?.stopCapture()
+            audioRepository?.clearSignals()
             stopLocationTrackingUseCase?.invoke()
             resetJourneySessionUseCase?.invoke()
             resetJourneyUseCase?.invoke()
@@ -369,25 +398,57 @@ class JourneyViewModel(
     }
 
     /**
+     * Starts audio capture if all gates (active session + audio consent + RECORD_AUDIO permission) are met.
+     */
+    fun startAudioCapture() {
+        viewModelScope.launch {
+            audioRepository?.startCapture()
+        }
+    }
+
+    /**
+     * Stops audio capture and clears volatile signals.
+     */
+    fun stopAudioCapture() {
+        viewModelScope.launch {
+            audioRepository?.stopCapture()
+        }
+    }
+
+    /**
+     * Handles the result of the Android RECORD_AUDIO runtime permission request.
+     * Auto-starts audio capture if all gates are now satisfied.
+     */
+    fun onAudioPermissionResult(status: AudioPermissionStatus) {
+        if (status.isGranted && uiState.value.isJourneyActive && uiState.value.isAudioConsentGranted) {
+            startAudioCapture()
+        }
+    }
+
+    /**
      * Activity / UI Lifecycle: App transitioned to background.
-     * Pauses foreground location tracking to ensure zero background tracking.
+     * Pauses foreground location tracking and stops audio capture to ensure zero background capture.
      */
     fun onAppBackgrounded() {
         if (uiState.value.isJourneyActive) {
             viewModelScope.launch {
                 pauseLocationTrackingUseCase?.invoke()
+                audioRepository?.stopCapture()
             }
         }
     }
 
     /**
      * Activity / UI Lifecycle: App returned to foreground.
-     * Resumes foreground tracking if journey remains active and gates are satisfied.
+     * Resumes foreground tracking and audio capture if journey remains active and gates are satisfied.
      */
     fun onAppForegrounded() {
         if (uiState.value.isJourneyActive) {
             viewModelScope.launch {
                 resumeLocationTrackingUseCase?.invoke()
+                if (uiState.value.canCaptureAudio) {
+                    audioRepository?.startCapture()
+                }
             }
         }
     }
@@ -401,7 +462,9 @@ class JourneyViewModel(
             journeySessionRepository: JourneySessionRepository? = null,
             clock: Clock = SystemClock(),
             anomalyRepository: AnomalyRepository? = null,
-            anomalyDetector: JourneyAnomalyDetector? = null
+            anomalyDetector: JourneyAnomalyDetector? = null,
+            audioRepository: AudioRepository? = null,
+            audioPermissionChecker: AudioPermissionChecker? = null
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -464,7 +527,9 @@ class JourneyViewModel(
                     clock = clock,
                     evaluateJourneyAnomaliesUseCase = evaluateAnomaliesUseCase,
                     getActiveAnomaliesUseCase = getAnomaliesUseCase,
-                    clearAnomaliesUseCase = clearAnomaliesUseCase
+                    clearAnomaliesUseCase = clearAnomaliesUseCase,
+                    audioRepository = audioRepository,
+                    audioPermissionChecker = audioPermissionChecker
                 ) as T
             }
         }

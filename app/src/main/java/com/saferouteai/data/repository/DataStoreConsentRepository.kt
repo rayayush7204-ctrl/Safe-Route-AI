@@ -40,4 +40,13 @@ class DataStoreConsentRepository(
             Result.Error(e)
         }
     }
+
+    override suspend fun setAudioProcessingConsent(enabled: Boolean): Result<Unit> {
+        return try {
+            consentDataStore.setAudioProcessingConsent(enabled)
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(e)
+        }
+    }
 }

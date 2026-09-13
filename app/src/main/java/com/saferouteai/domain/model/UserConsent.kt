@@ -12,5 +12,6 @@ package com.saferouteai.domain.model
 data class UserConsent(
     val locationSharingConsent: Boolean = false,
     val trustedContactSharingConsent: Boolean = false,
+    val audioProcessingConsent: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
 )

@@ -64,6 +64,21 @@ class ConsentViewModel(
         }
     }
 
+    fun onAudioProcessingConsentToggled(enabled: Boolean) {
+        viewModelScope.launch {
+            when (val result = updateConsentUseCase.setAudioProcessingConsent(enabled)) {
+                is Result.Success -> {
+                    // updated reactively
+                }
+                is Result.Error -> {
+                    _uiState.update {
+                        it.copy(errorMessage = result.exception.localizedMessage ?: "Failed to update consent")
+                    }
+                }
+            }
+        }
+    }
+
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
     }

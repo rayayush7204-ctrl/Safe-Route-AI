@@ -15,6 +15,10 @@ class UpdateConsentUseCase(
         return repository.setTrustedContactSharingConsent(enabled)
     }
 
+    suspend fun setAudioProcessingConsent(enabled: Boolean): Result<Unit> {
+        return repository.setAudioProcessingConsent(enabled)
+    }
+
     suspend fun updateConsent(consent: UserConsent): Result<Unit> {
         return repository.updateConsent(consent.copy(updatedAt = System.currentTimeMillis()))
     }

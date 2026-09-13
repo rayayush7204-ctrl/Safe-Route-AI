@@ -4,10 +4,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import com.saferouteai.data.audio.AndroidAudioPermissionChecker
+import com.saferouteai.data.audio.AndroidAudioRecordDataSource
 import com.saferouteai.data.local.SafeRouteDatabase
 import com.saferouteai.data.local.datastore.ConsentDataStore
 import com.saferouteai.data.location.AndroidLocationPermissionChecker
 import com.saferouteai.data.location.FusedLocationDataSource
+import com.saferouteai.data.repository.AndroidAudioRepository
 import com.saferouteai.data.repository.DataStoreConsentRepository
 import com.saferouteai.data.repository.FusedLocationRepository
 import com.saferouteai.data.repository.InMemoryJourneyRepository
@@ -61,6 +64,18 @@ class MainActivity : ComponentActivity() {
     private val anomalyRepository by lazy { com.saferouteai.data.repository.InMemoryAnomalyRepository() }
     private val anomalyDetector by lazy { com.saferouteai.domain.anomaly.JourneyAnomalyDetector() }
 
+    // Milestone 5A: Audio Capture Pipeline
+    private val audioPermissionChecker by lazy { AndroidAudioPermissionChecker(applicationContext) }
+    private val audioRecordDataSource by lazy { AndroidAudioRecordDataSource(clock) }
+    private val audioRepository by lazy {
+        AndroidAudioRepository(
+            audioRecordDataSource = audioRecordDataSource,
+            permissionChecker = audioPermissionChecker,
+            consentRepository = consentRepository,
+            journeySessionRepository = journeySessionRepository
+        )
+    }
+
     // ViewModels
     private val journeyViewModel: JourneyViewModel by viewModels {
         JourneyViewModel.provideFactory(
@@ -71,7 +86,9 @@ class MainActivity : ComponentActivity() {
             journeySessionRepository = journeySessionRepository,
             clock = clock,
             anomalyRepository = anomalyRepository,
-            anomalyDetector = anomalyDetector
+            anomalyDetector = anomalyDetector,
+            audioRepository = audioRepository,
+            audioPermissionChecker = audioPermissionChecker
         )
     }
 
@@ -104,6 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         permissionChecker.refreshStatus()
+        audioPermissionChecker.refreshStatus()
         journeyViewModel.onAppForegrounded()
     }
 

@@ -38,4 +38,12 @@ class InMemoryConsentRepository(
         )
         Result.Success(Unit)
     }
+
+    override suspend fun setAudioProcessingConsent(enabled: Boolean): Result<Unit> = mutex.withLock {
+        _consentState.value = _consentState.value.copy(
+            audioProcessingConsent = enabled,
+            updatedAt = System.currentTimeMillis()
+        )
+        Result.Success(Unit)
+    }
 }

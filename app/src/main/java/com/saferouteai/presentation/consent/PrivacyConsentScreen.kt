@@ -173,6 +173,14 @@ fun PrivacyConsentScreen(
                     onCheckedChange = { viewModel.onTrustedContactSharingConsentToggled(it) }
                 )
 
+                // Consent Toggle 3: Local Audio Processing
+                ConsentToggleCard(
+                    title = "Local Audio Processing Consent",
+                    description = "Authorize SafeRoute AI to capture and process microphone audio strictly on-device during active safe journeys. Audio is never recorded to disk, never uploaded, and processed only while an active journey is underway. Gated by explicit Android microphone permission.",
+                    isChecked = uiState.consent.audioProcessingConsent,
+                    onCheckedChange = { viewModel.onAudioProcessingConsentToggled(it) }
+                )
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
