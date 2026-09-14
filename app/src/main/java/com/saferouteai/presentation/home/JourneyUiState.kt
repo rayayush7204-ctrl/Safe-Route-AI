@@ -40,7 +40,9 @@ data class JourneyUiState(
     val isAudioConsentGranted: Boolean = false,
     val isAudioPermissionGranted: Boolean = false,
     val acousticSignals: List<com.saferouteai.domain.model.audio.AcousticSignal> = emptyList(),
-    val showAudioConsentRationaleDialog: Boolean = false
+    val showAudioConsentRationaleDialog: Boolean = false,
+    // Milestone 6 Multi-Signal Risk Assessment additions:
+    val riskAssessment: com.saferouteai.domain.model.risk.RiskAssessment = com.saferouteai.domain.model.risk.RiskAssessment.normal()
 ) {
     val isJourneyActive: Boolean
         get() = sessionStatus.isActiveSession || journeyState == JourneyState.ACTIVE

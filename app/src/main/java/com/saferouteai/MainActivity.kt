@@ -82,6 +82,9 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    // Milestone 6: Multi-Signal Risk Fusion Engine
+    private val riskFusionEngine by lazy { com.saferouteai.domain.risk.RiskFusionEngine() }
+
     // ViewModels
     private val journeyViewModel: JourneyViewModel by viewModels {
         JourneyViewModel.provideFactory(
@@ -94,7 +97,8 @@ class MainActivity : ComponentActivity() {
             anomalyRepository = anomalyRepository,
             anomalyDetector = anomalyDetector,
             audioRepository = audioRepository,
-            audioPermissionChecker = audioPermissionChecker
+            audioPermissionChecker = audioPermissionChecker,
+            riskFusionEngine = riskFusionEngine
         )
     }
 
@@ -110,8 +114,35 @@ class MainActivity : ComponentActivity() {
         ConsentViewModel.provideFactory(consentRepository)
     }
 
+    private val testAnomalyReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            val isDebuggable = (context?.applicationInfo?.flags?.and(android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) ?: 0) != 0
+            if (!isDebuggable) return
+
+            if (intent?.action == "com.saferouteai.ACTION_INJECT_TEST_ANOMALY") {
+                val typeStr = intent.getStringExtra("type") ?: "PROLONGED_STOP"
+                val anomalyType = try {
+                    com.saferouteai.domain.model.anomaly.AnomalyType.valueOf(typeStr)
+                } catch (e: Exception) {
+                    com.saferouteai.domain.model.anomaly.AnomalyType.PROLONGED_STOP
+                }
+                journeyViewModel.injectTestLocationAnomaly(anomalyType)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (isDebuggable) {
+            val filter = android.content.IntentFilter("com.saferouteai.ACTION_INJECT_TEST_ANOMALY")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(testAnomalyReceiver, filter, RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(testAnomalyReceiver, filter)
+            }
+        }
+
         setContent {
             SafeRouteTheme {
                 SafeRouteNavHost(
@@ -120,6 +151,17 @@ class MainActivity : ComponentActivity() {
                     trustedContactsViewModel = trustedContactsViewModel,
                     consentViewModel = consentViewModel
                 )
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        val isDebuggable = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (isDebuggable) {
+            try {
+                unregisterReceiver(testAnomalyReceiver)
+            } catch (ignored: Exception) {
             }
         }
     }

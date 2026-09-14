@@ -36,7 +36,7 @@ class EvaluateJourneyAnomaliesUseCase(
         }
 
         val recentLocations = anomalyRepository.recentLocations.value
-        val signals = detector.detectAnomalies(
+        val detectedSignals = detector.detectAnomalies(
             session = session,
             recentLocations = recentLocations,
             expectedRoute = expectedRoute,
@@ -44,7 +44,14 @@ class EvaluateJourneyAnomaliesUseCase(
             currentTimeEpochMs = clock.nowEpochMs()
         )
 
-        anomalyRepository.updateSignals(signals)
-        return signals
+        // Retain active test-injected simulated anomalies during controlled physical test runs
+        val activeTestSignals = anomalyRepository.activeSignals.value.filter { signal ->
+            signal.explanation.contains("(simulated)") &&
+                (clock.nowEpochMs() - signal.timestampEpochMs) in 0L..300_000L
+        }
+
+        val allSignals = (detectedSignals + activeTestSignals).distinctBy { it.id }
+        anomalyRepository.updateSignals(allSignals)
+        return allSignals
     }
 }

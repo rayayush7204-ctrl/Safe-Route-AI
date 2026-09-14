@@ -7,8 +7,12 @@ import com.saferouteai.core.result.Result
 import com.saferouteai.data.time.SystemClock
 import com.saferouteai.domain.anomaly.JourneyAnomalyDetector
 import com.saferouteai.domain.model.JourneyState
+import com.saferouteai.domain.model.anomaly.AnomalySeverity
 import com.saferouteai.domain.model.anomaly.AnomalySignal
+import com.saferouteai.domain.model.anomaly.AnomalyType
 import com.saferouteai.domain.model.anomaly.ExpectedRoute
+import com.saferouteai.domain.model.risk.RiskAssessment
+import com.saferouteai.domain.risk.RiskFusionEngine
 import com.saferouteai.domain.model.audio.AudioCaptureState
 import com.saferouteai.domain.model.audio.AudioPermissionStatus
 import com.saferouteai.domain.model.location.LocationPermissionStatus
@@ -86,7 +90,10 @@ class JourneyViewModel(
     private val clearAnomaliesUseCase: ClearAnomaliesUseCase? = null,
     // Milestone 5A Secure Audio Pipeline additions:
     private val audioRepository: AudioRepository? = null,
-    private val audioPermissionChecker: AudioPermissionChecker? = null
+    private val audioPermissionChecker: AudioPermissionChecker? = null,
+    // Milestone 6 Multi-Signal Risk Assessment additions:
+    private val riskFusionEngine: RiskFusionEngine = RiskFusionEngine(),
+    private val anomalyRepository: AnomalyRepository? = null
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
@@ -162,6 +169,14 @@ class JourneyViewModel(
         // Auto-show check-in dialog when status is CHECKPOINT_DUE
         val effectiveShowCheckIn = showCheckInDialog || sessionStatus == SessionStatus.CHECKPOINT_DUE
 
+        // Milestone 6: Evaluate deterministic multi-signal risk
+        val riskAssessment = riskFusionEngine.evaluate(
+            session = session,
+            locationAnomalies = activeAnomalies,
+            acousticSignals = acousticSignals,
+            currentTimeEpochMs = clock.nowEpochMs()
+        )
+
         JourneyUiState(
             journeyState = journeyState,
             locationTrackingState = trackingState,
@@ -183,7 +198,8 @@ class JourneyViewModel(
             audioCaptureState = audioCaptureState,
             isAudioConsentGranted = isAudioConsentGranted,
             isAudioPermissionGranted = isAudioPermissionGranted,
-            acousticSignals = acousticSignals
+            acousticSignals = acousticSignals,
+            riskAssessment = riskAssessment
         )
     }.stateIn(
         scope = viewModelScope,
@@ -453,6 +469,30 @@ class JourneyViewModel(
         }
     }
 
+    /**
+     * Test-only injection mechanism for controlled location anomaly verification.
+     * Inaccessible to normal production user flows.
+     */
+    @androidx.annotation.VisibleForTesting
+    fun injectTestLocationAnomaly(
+        type: AnomalyType = AnomalyType.PROLONGED_STOP,
+        explanation: String = "Stationary duration exceeded test threshold (simulated)."
+    ) {
+        val session = journeySessionRepository?.activeSession?.value ?: uiState.value.session
+        if (session == null || !session.status.isActiveSession) return
+        val testSignal = AnomalySignal(
+            sessionId = session.sessionId,
+            type = type,
+            severity = AnomalySeverity.HIGH,
+            timestampEpochMs = clock.nowEpochMs(),
+            explanation = explanation,
+            confidence = 0.95f
+        )
+        val current = anomalyRepository?.activeSignals?.value?.toMutableList() ?: mutableListOf()
+        current.add(testSignal)
+        anomalyRepository?.updateSignals(current)
+    }
+
     companion object {
         fun provideFactory(
             journeyRepository: JourneyRepository,
@@ -464,7 +504,8 @@ class JourneyViewModel(
             anomalyRepository: AnomalyRepository? = null,
             anomalyDetector: JourneyAnomalyDetector? = null,
             audioRepository: AudioRepository? = null,
-            audioPermissionChecker: AudioPermissionChecker? = null
+            audioPermissionChecker: AudioPermissionChecker? = null,
+            riskFusionEngine: RiskFusionEngine = RiskFusionEngine()
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -529,7 +570,9 @@ class JourneyViewModel(
                     getActiveAnomaliesUseCase = getAnomaliesUseCase,
                     clearAnomaliesUseCase = clearAnomaliesUseCase,
                     audioRepository = audioRepository,
-                    audioPermissionChecker = audioPermissionChecker
+                    audioPermissionChecker = audioPermissionChecker,
+                    riskFusionEngine = riskFusionEngine,
+                    anomalyRepository = anomalyRepository
                 ) as T
             }
         }

@@ -57,6 +57,7 @@ import com.saferouteai.presentation.home.components.CheckpointStatusCard
 import com.saferouteai.presentation.home.components.JourneySignalsCard
 import com.saferouteai.presentation.home.components.LocationPreflightDialog
 import com.saferouteai.presentation.home.components.LocationStatusCard
+import com.saferouteai.presentation.home.components.RiskAssessmentCard
 import com.saferouteai.presentation.home.components.SafetyCheckInDialog
 import com.saferouteai.presentation.permission.rememberAudioPermissionLauncher
 import com.saferouteai.presentation.permission.rememberLocationPermissionLauncher
@@ -244,6 +245,10 @@ fun HomeScreen(
                     nextCheckpointRemainingMs = uiState.nextCheckpointRemainingMs,
                     onCheckInClicked = { viewModel.onAcknowledgeCheckpoint() }
                 )
+
+                // Milestone 6: Multi-Signal Risk Assessment Card
+                Spacer(modifier = Modifier.height(16.dp))
+                RiskAssessmentCard(riskAssessment = uiState.riskAssessment)
 
                 // Local Journey Anomaly Observations Card
                 if (uiState.activeAnomalies.isNotEmpty()) {

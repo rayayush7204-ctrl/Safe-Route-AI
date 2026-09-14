@@ -11,6 +11,7 @@ import java.util.UUID
  */
 data class AcousticSignal(
     val id: String = UUID.randomUUID().toString(),
+    val sessionId: String = "",
     val type: AcousticSignalType,
     val detectedAtEpochMs: Long,
     val durationMs: Long? = null,

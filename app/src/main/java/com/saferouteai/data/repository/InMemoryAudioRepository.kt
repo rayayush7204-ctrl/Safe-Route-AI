@@ -78,9 +78,9 @@ class InMemoryAudioRepository(
     /**
      * Test helper: simulates an incoming in-memory audio frame through the detector.
      */
-    suspend fun simulateFrame(frame: AudioFrame) = mutex.withLock {
+    suspend fun simulateFrame(frame: AudioFrame, sessionId: String = "") = mutex.withLock {
         if (!_captureState.value.isCapturing) return@withLock
-        val detected = detector.processFrame(frame)
+        val detected = detector.processFrame(frame, sessionId)
         if (detected.isNotEmpty()) {
             val list = _acousticSignals.value.toMutableList()
             list.addAll(detected)

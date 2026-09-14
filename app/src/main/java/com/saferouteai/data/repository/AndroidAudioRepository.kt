@@ -107,8 +107,9 @@ class AndroidAudioRepository(
 
         val job = externalScope.launch {
             _captureState.value = AudioCaptureState.CAPTURING
+            val activeSessionId = journeySessionRepository?.activeSession?.value?.sessionId ?: ""
             val result = audioRecordDataSource.startRecording { frame ->
-                val detected = detector.processFrame(frame)
+                val detected = detector.processFrame(frame, activeSessionId)
                 if (detected.isNotEmpty()) {
                     val currentList = _acousticSignals.value.toMutableList()
                     currentList.addAll(detected)

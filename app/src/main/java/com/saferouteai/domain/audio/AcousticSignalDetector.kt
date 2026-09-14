@@ -14,6 +14,14 @@ interface AcousticSignalDetector {
     fun processFrame(frame: AudioFrame): List<AcousticSignal>
 
     /**
+     * Analyzes an in-memory PCM audio frame in the context of an active session.
+     */
+    fun processFrame(frame: AudioFrame, sessionId: String): List<AcousticSignal> =
+        processFrame(frame).map { signal ->
+            if (signal.sessionId.isEmpty()) signal.copy(sessionId = sessionId) else signal
+        }
+
+    /**
      * Resets any internal state when capture stops.
      */
     fun reset()
