@@ -14,12 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Warning
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,12 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saferouteai.domain.model.risk.RiskAssessment
 import com.saferouteai.domain.model.risk.RiskFactor
-import com.saferouteai.domain.model.risk.SafetyTier
+import com.saferouteai.presentation.common.RiskScoreDisplay
+import com.saferouteai.presentation.common.RiskTierIndicator
+import com.saferouteai.presentation.common.SafeRouteCard
+import com.saferouteai.presentation.common.SafetyTierVisualMapping
+import com.saferouteai.presentation.theme.cornerRadius
+import com.saferouteai.presentation.theme.spacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,36 +42,14 @@ import java.util.Locale
  * Invariants:
  * - Observational awareness only.
  * - No sirens, no flashing emergency UI, no automated SOS triggers.
- * - Displays factual contributing factors and qualitative safety tiers.
+ * - Displays factual contributing factors and conservative qualitative safety tiers.
  */
 @Composable
 fun RiskAssessmentCard(
     riskAssessment: RiskAssessment,
     modifier: Modifier = Modifier
 ) {
-    val tierColor = when (riskAssessment.tier) {
-        SafetyTier.NORMAL -> MaterialTheme.colorScheme.primary
-        SafetyTier.ELEVATED -> Color(0xFFE65100) // Calm amber
-        SafetyTier.HIGH -> Color(0xFFC62828) // Deep terra cotta / calm red
-    }
-
-    val tierContainerColor = when (riskAssessment.tier) {
-        SafetyTier.NORMAL -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-        SafetyTier.ELEVATED -> Color(0xFFFFF3E0)
-        SafetyTier.HIGH -> Color(0xFFFFEBEE)
-    }
-
-    val tierIcon: ImageVector = when (riskAssessment.tier) {
-        SafetyTier.NORMAL -> Icons.Outlined.CheckCircle
-        SafetyTier.ELEVATED -> Icons.Outlined.Info
-        SafetyTier.HIGH -> Icons.Outlined.Warning
-    }
-
-    val tierLabel = when (riskAssessment.tier) {
-        SafetyTier.NORMAL -> "Normal Safety Tier"
-        SafetyTier.ELEVATED -> "Elevated Observations"
-        SafetyTier.HIGH -> "High Multi-Signal Level"
-    }
+    val visual = SafetyTierVisualMapping.getVisual(riskAssessment.tier)
 
     val timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     val assessedTimeStr = if (riskAssessment.assessedAtEpochMs > 0) {
@@ -82,107 +58,75 @@ fun RiskAssessmentCard(
         "Active"
     }
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    SafeRouteCard(
+        modifier = modifier.animateContentSize()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
+        // Header: Title & Safety Tier Badge
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Header: Title & Safety Tier Badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = tierIcon,
-                        contentDescription = "Safety Tier: $tierLabel",
-                        tint = tierColor,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Safety Assessment",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                // Tier Pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(tierContainerColor)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = riskAssessment.tier.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = tierColor
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Score & Assessed Timestamp
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Fused risk score: ${riskAssessment.score} / 100",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = visual.icon,
+                    contentDescription = "Safety Tier: ${visual.label}",
+                    tint = visual.color,
+                    modifier = Modifier.size(24.dp)
                 )
+                Spacer(modifier = Modifier.width(MaterialTheme.spacing.xs))
                 Text(
-                    text = "Updated: $assessedTimeStr",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Narrative summary
-            val summaryText = when (riskAssessment.tier) {
-                SafetyTier.NORMAL -> "Baseline safety observed. No anomalous conditions detected."
-                SafetyTier.ELEVATED -> "Elevated safety signals detected. Monitoring situation locally."
-                SafetyTier.HIGH -> "Multiple safety signals were detected across sensors."
-            }
-
-            Text(
-                text = summaryText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            // Contributing Factors List
-            if (riskAssessment.factors.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Contributing observations:",
-                    style = MaterialTheme.typography.labelMedium,
+                    text = "Safety Assessment",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+            }
 
-                riskAssessment.factors.forEach { factor ->
-                    RiskFactorRow(factor = factor, accentColor = tierColor)
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
+            // Accessible Tier Indicator with Text + Icon + Semantic Color
+            RiskTierIndicator(tier = riskAssessment.tier)
+        }
+
+        Spacer(modifier = Modifier.height(MaterialTheme.spacing.sm))
+
+        // Score & Assessed Timestamp
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RiskScoreDisplay(score = riskAssessment.score, scoreColor = visual.color)
+
+            Text(
+                text = "Updated: $assessedTimeStr",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline
+            )
+        }
+
+        Spacer(modifier = Modifier.height(MaterialTheme.spacing.sm))
+
+        // Conservative, explainable narrative summary
+        Text(
+            text = visual.narrative,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // Contributing Factors List
+        if (riskAssessment.factors.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(MaterialTheme.spacing.md))
+            Text(
+                text = "Contributing observations:",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(MaterialTheme.spacing.xs))
+
+            riskAssessment.factors.forEach { factor ->
+                RiskFactorRow(factor = factor, accentColor = visual.color)
+                Spacer(modifier = Modifier.height(MaterialTheme.spacing.xxs))
             }
         }
     }
@@ -196,9 +140,9 @@ private fun RiskFactorRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .clip(RoundedCornerShape(MaterialTheme.cornerRadius.sm))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = MaterialTheme.spacing.sm, vertical = MaterialTheme.spacing.xs),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -212,7 +156,7 @@ private fun RiskFactorRow(
                     .clip(CircleShape)
                     .background(accentColor)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.xs))
             Text(
                 text = factor.explanation,
                 style = MaterialTheme.typography.bodySmall,
@@ -220,7 +164,7 @@ private fun RiskFactorRow(
             )
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(MaterialTheme.spacing.xs))
 
         Text(
             text = "+${factor.contribution}",

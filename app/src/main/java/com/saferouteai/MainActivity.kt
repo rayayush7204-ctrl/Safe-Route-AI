@@ -4,25 +4,32 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saferouteai.data.audio.AndroidAudioPermissionChecker
 import com.saferouteai.data.audio.AndroidAudioRecordDataSource
 import com.saferouteai.data.local.SafeRouteDatabase
 import com.saferouteai.data.local.datastore.ConsentDataStore
+import com.saferouteai.data.local.datastore.ThemePreferencesDataStore
 import com.saferouteai.data.location.AndroidLocationPermissionChecker
 import com.saferouteai.data.location.FusedLocationDataSource
 import com.saferouteai.data.repository.AndroidAudioRepository
 import com.saferouteai.data.repository.DataStoreConsentRepository
+import com.saferouteai.data.repository.DataStoreThemePreferencesRepository
 import com.saferouteai.data.repository.FusedLocationRepository
 import com.saferouteai.data.repository.InMemoryJourneyRepository
 import com.saferouteai.data.repository.RoomTrustedContactsRepository
 import com.saferouteai.data.repository.RoomUserProfileRepository
 import com.saferouteai.domain.audio.DeterministicAcousticSignalDetector
 import com.saferouteai.domain.model.audio.AudioDetectionPolicy
+import com.saferouteai.domain.model.theme.ThemeMode
 import com.saferouteai.presentation.consent.ConsentViewModel
 import com.saferouteai.presentation.contacts.TrustedContactsViewModel
 import com.saferouteai.presentation.home.JourneyViewModel
 import com.saferouteai.presentation.navigation.SafeRouteNavHost
 import com.saferouteai.presentation.profile.ProfileViewModel
+import com.saferouteai.presentation.settings.SettingsViewModel
 import com.saferouteai.presentation.theme.SafeRouteTheme
 
 /**
@@ -44,6 +51,10 @@ class MainActivity : ComponentActivity() {
     // DataStore Preferences repository for Consent
     private val consentDataStore by lazy { ConsentDataStore(applicationContext) }
     private val consentRepository by lazy { DataStoreConsentRepository(consentDataStore) }
+
+    // DataStore Preferences repository for Theme / Appearance
+    private val themePreferencesDataStore by lazy { ThemePreferencesDataStore(applicationContext) }
+    private val themePreferencesRepository by lazy { DataStoreThemePreferencesRepository(themePreferencesDataStore) }
 
     // Location components (Play Services Fused Location + Permission Checker)
     private val permissionChecker by lazy { AndroidLocationPermissionChecker(applicationContext) }
@@ -114,6 +125,10 @@ class MainActivity : ComponentActivity() {
         ConsentViewModel.provideFactory(consentRepository)
     }
 
+    private val settingsViewModel: SettingsViewModel by viewModels {
+        SettingsViewModel.provideFactory(themePreferencesRepository)
+    }
+
     private val testAnomalyReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             val isDebuggable = (context?.applicationInfo?.flags?.and(android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) ?: 0) != 0
@@ -144,12 +159,21 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            SafeRouteTheme {
+            val themeMode by settingsViewModel.themeMode.collectAsStateWithLifecycle()
+            val isSystemInDark = isSystemInDarkTheme()
+            val isDarkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+
+            SafeRouteTheme(darkTheme = isDarkTheme) {
                 SafeRouteNavHost(
                     journeyViewModel = journeyViewModel,
                     profileViewModel = profileViewModel,
                     trustedContactsViewModel = trustedContactsViewModel,
-                    consentViewModel = consentViewModel
+                    consentViewModel = consentViewModel,
+                    settingsViewModel = settingsViewModel
                 )
             }
         }

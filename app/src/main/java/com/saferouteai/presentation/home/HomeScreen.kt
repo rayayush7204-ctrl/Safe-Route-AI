@@ -1,6 +1,7 @@
 package com.saferouteai.presentation.home
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,25 +17,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.StopCircle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -44,40 +43,46 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saferouteai.domain.model.JourneyState
 import com.saferouteai.domain.model.session.SessionStatus
-import com.saferouteai.presentation.common.SectionCard
+import com.saferouteai.presentation.common.PrimaryButton
+import com.saferouteai.presentation.common.SafeRouteBottomNavigation
+import com.saferouteai.presentation.common.SafeRouteCard
+import com.saferouteai.presentation.common.SecondaryButton
 import com.saferouteai.presentation.common.StatusBadge
-import com.saferouteai.presentation.home.components.AudioSafetyStatusCard
-import com.saferouteai.presentation.home.components.CheckpointStatusCard
-import com.saferouteai.presentation.home.components.JourneySignalsCard
 import com.saferouteai.presentation.home.components.LocationPreflightDialog
-import com.saferouteai.presentation.home.components.LocationStatusCard
-import com.saferouteai.presentation.home.components.RiskAssessmentCard
 import com.saferouteai.presentation.home.components.SafetyCheckInDialog
+import com.saferouteai.presentation.navigation.Screen
 import com.saferouteai.presentation.permission.rememberAudioPermissionLauncher
 import com.saferouteai.presentation.permission.rememberLocationPermissionLauncher
+import com.saferouteai.presentation.theme.safeRouteColors
+import com.saferouteai.presentation.theme.spacing
+import java.util.Calendar
 
+/**
+ * Modern Home Screen matching Option 1 & 2 Screen 2 from the SafeRoute reference design.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: JourneyViewModel,
     onNavigateToSettings: () -> Unit,
-    modifier: Modifier = Modifier
+    onNavigateToContacts: () -> Unit,
+    onNavigateToPlanJourney: () -> Unit,
+    onNavigateToActiveJourney: () -> Unit,
+    onNavigateToConsent: () -> Unit,
+    modifier: Modifier = Modifier,
+    userName: String = "Ayush"
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val requestPermissionLauncher = rememberLocationPermissionLauncher { status ->
         viewModel.onPermissionResult(status)
-    }
-
-    val requestAudioPermissionLauncher = rememberAudioPermissionLauncher { status ->
-        viewModel.onAudioPermissionResult(status)
     }
 
     LaunchedEffect(uiState.errorMessage) {
@@ -87,6 +92,13 @@ fun HomeScreen(
         }
     }
 
+    val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val greeting = when (currentHour) {
+        in 5..11 -> "Good morning,"
+        in 12..16 -> "Good afternoon,"
+        else -> "Good evening,"
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -94,26 +106,26 @@ fun HomeScreen(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = "SafeRoute",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "SafeRoute AI",
-                            style = MaterialTheme.typography.titleLarge
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 },
@@ -130,93 +142,80 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        }
+        },
+        bottomBar = {
+            SafeRouteBottomNavigation(
+                currentRoute = Screen.Home.route,
+                onNavigateToRoute = { route ->
+                    when (route) {
+                        Screen.Journey.route -> {
+                            if (uiState.isJourneyActive) {
+                                onNavigateToActiveJourney()
+                            } else {
+                                onNavigateToPlanJourney()
+                            }
+                        }
+                        Screen.TrustedContacts.route -> onNavigateToContacts()
+                        Screen.Settings.route -> onNavigateToSettings()
+                    }
+                }
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            // Header Description Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            // User Greeting Header (Option 2 Screen 1 / Option 1 Screen 2)
+            Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                Text(
+                    text = greeting,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "SafeRoute AI",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "A personal safety journey application designed to accompany you during daily travels with proactive, intelligent protection.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "$userName 👋",
+                    style = MaterialTheme.typography.headlineMedium.copy(fontSize = 28.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Ready for a safer journey?",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Current Journey State Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
+            // Primary Journey State Card
+            SafeRouteCard {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.Start
                 ) {
-                    Text(
-                        text = "Current Status",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    StatusBadge(journeyState = uiState.journeyState)
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    StatusBadge(journeyState = uiState.journeyState)
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
                     Text(
                         text = when {
-                            uiState.sessionStatus == SessionStatus.CHECKPOINT_DUE ->
-                                "Safety Check-In is due! Tap below to confirm you are safe."
-                            uiState.isJourneyActive ->
-                                "Safe Journey session is active. Foreground tracking and periodic safety checkpoints armed."
-                            uiState.isJourneyCompleted ->
-                                "Your Safe Journey session has concluded normally."
-                            uiState.isJourneyCancelled ->
-                                "Your Safe Journey session was cancelled."
-                            else ->
-                                "Ready to accompany you. Tap below to begin a safe journey."
+                            uiState.isJourneyActive -> "Safe Journey session is active. Foreground tracking and periodic safety checkpoints armed."
+                            uiState.isJourneyCompleted -> "Your Safe Journey session has concluded normally."
+                            uiState.isJourneyCancelled -> "Your Safe Journey session was cancelled."
+                            else -> "Start a journey to enable local safety monitoring."
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     if (uiState.isJourneyActive && uiState.elapsedDurationMs > 0) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         val elapsedSeconds = uiState.elapsedDurationMs / 1000L
                         val minutes = elapsedSeconds / 60
                         val seconds = elapsedSeconds % 60
@@ -227,189 +226,131 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                }
-            }
 
-            // Real-Time Location Card during Active Journey
-            if (uiState.isJourneyActive) {
-                Spacer(modifier = Modifier.height(16.dp))
-                LocationStatusCard(
-                    trackingState = uiState.locationTrackingState,
-                    location = uiState.currentLocation
-                )
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
-                // Local Safety Checkpoint Card
-                CheckpointStatusCard(
-                    checkpointState = uiState.checkpointState,
-                    nextCheckpointRemainingMs = uiState.nextCheckpointRemainingMs,
-                    onCheckInClicked = { viewModel.onAcknowledgeCheckpoint() }
-                )
-
-                // Milestone 6: Multi-Signal Risk Assessment Card
-                Spacer(modifier = Modifier.height(16.dp))
-                RiskAssessmentCard(riskAssessment = uiState.riskAssessment)
-
-                // Local Journey Anomaly Observations Card
-                if (uiState.activeAnomalies.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    JourneySignalsCard(signals = uiState.activeAnomalies)
-                }
-
-                // Milestone 5A: Audio Safety Pipeline Status Card
-                Spacer(modifier = Modifier.height(16.dp))
-                AudioSafetyStatusCard(
-                    audioCaptureState = uiState.audioCaptureState,
-                    isAudioConsentGranted = uiState.isAudioConsentGranted,
-                    isAudioPermissionGranted = uiState.isAudioPermissionGranted,
-                    acousticSignals = uiState.acousticSignals,
-                    onRequestPermission = {
-                        requestAudioPermissionLauncher()
-                    },
-                    onStartCapture = {
-                        viewModel.startAudioCapture()
-                    },
-                    onStopCapture = {
-                        viewModel.stopAudioCapture()
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Primary Action Buttons
-            if (uiState.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.size(48.dp))
-            } else {
-                when {
-                    !uiState.isJourneyActive && !uiState.isJourneyCompleted && !uiState.isJourneyCancelled -> {
-                        Button(
-                            onClick = { viewModel.onStartJourneyClicked() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
+                    if (uiState.isLoading) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                            CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                        }
+                    } else if (uiState.isJourneyActive) {
+                        PrimaryButton(
+                            text = "View Active Journey",
+                            trailingIcon = Icons.AutoMirrored.Filled.ArrowForward,
+                            onClick = onNavigateToActiveJourney
+                        )
+                    } else {
+                        PrimaryButton(
+                            text = "Start Safe Journey",
+                            trailingIcon = Icons.AutoMirrored.Filled.ArrowForward,
+                            onClick = onNavigateToPlanJourney
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Trusted Contacts Card Row
+            SafeRouteCard(
+                onClick = onNavigateToContacts
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.People,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
                             Text(
-                                text = "Start Safe Journey",
-                                style = MaterialTheme.typography.labelLarge
+                                text = "Trusted Contacts",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Local safety contacts saved",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open Contacts",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
 
-                    uiState.isJourneyActive -> {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Button(
-                                onClick = { viewModel.endJourney() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.error
-                                )
-                            ) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Privacy First Card Row
+            SafeRouteCard(
+                onClick = onNavigateToConsent
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.safeRouteColors.successContainer.copy(alpha = 0.6f),
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.StopCircle,
+                                    imageVector = Icons.Default.Lock,
                                     contentDescription = null,
+                                    tint = MaterialTheme.safeRouteColors.success,
                                     modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = "End Journey",
-                                    style = MaterialTheme.typography.labelLarge
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            OutlinedButton(
-                                onClick = { viewModel.cancelJourney() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(48.dp),
-                                shape = RoundedCornerShape(14.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Cancel,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Cancel Journey",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
                             }
                         }
-                    }
-
-                    uiState.isJourneyCompleted || uiState.isJourneyCancelled -> {
-                        Button(
-                            onClick = { viewModel.resetJourney() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.DirectionsWalk,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
                             Text(
-                                text = "Start Another Journey",
-                                style = MaterialTheme.typography.labelLarge
+                                text = "Privacy First",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "On-device processing • Zero cloud telemetry",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open Privacy Consent",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Secondary Action: Settings Button
-            OutlinedButton(
-                onClick = onNavigateToSettings,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Settings",
-                    style = MaterialTheme.typography.labelLarge
-                )
-            }
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Privacy & Architecture Foundation Notice
-            SectionCard(
-                title = "Local Safety Engine",
-                description = "Strictly foreground-only tracking and local periodic check-ins. Session metadata is stored locally; zero location history or cloud telemetry.",
-                icon = Icons.Default.Info,
-                trailingTag = "Local Only"
-            )
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 

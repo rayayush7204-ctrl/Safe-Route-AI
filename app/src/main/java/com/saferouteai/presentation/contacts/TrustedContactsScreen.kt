@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -38,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -60,7 +62,8 @@ import com.saferouteai.domain.model.TrustedContact
 fun TrustedContactsScreen(
     viewModel: TrustedContactsViewModel,
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onNavigateToRoute: ((String) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -85,7 +88,7 @@ fun TrustedContactsScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Trusted Contacts", style = MaterialTheme.typography.titleLarge) },
+                title = { Text("Trusted Contacts", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -94,18 +97,26 @@ fun TrustedContactsScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(onClick = { /* Search contacts */ }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { viewModel.openAddContactDialog() },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = "Add Contact")
+        bottomBar = {
+            if (onNavigateToRoute != null) {
+                com.saferouteai.presentation.common.SafeRouteBottomNavigation(
+                    currentRoute = com.saferouteai.presentation.navigation.Screen.TrustedContacts.route,
+                    onNavigateToRoute = onNavigateToRoute
+                )
             }
         }
     ) { innerPadding ->
@@ -183,7 +194,12 @@ fun TrustedContactsScreen(
                 }
 
                 item {
-                    Spacer(modifier = Modifier.height(72.dp)) // Clearance for FAB
+                    Spacer(modifier = Modifier.height(12.dp))
+                    com.saferouteai.presentation.common.PrimaryButton(
+                        text = "+ Add Contact",
+                        onClick = { viewModel.openAddContactDialog() }
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
         }
@@ -246,10 +262,26 @@ private fun ContactCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Surface(
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = contact.name.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = contact.name,
                         style = MaterialTheme.typography.titleMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(2.dp))

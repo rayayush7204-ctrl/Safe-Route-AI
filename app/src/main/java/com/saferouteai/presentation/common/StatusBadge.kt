@@ -14,12 +14,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.saferouteai.domain.model.JourneyState
-import com.saferouteai.presentation.theme.StatusActive
-import com.saferouteai.presentation.theme.StatusCompleted
-import com.saferouteai.presentation.theme.StatusIdle
+import com.saferouteai.presentation.theme.cornerRadius
+import com.saferouteai.presentation.theme.safeRouteColors
+import com.saferouteai.presentation.theme.spacing
 
 @Composable
 fun StatusBadge(
@@ -27,18 +26,18 @@ fun StatusBadge(
     modifier: Modifier = Modifier
 ) {
     val (statusColor, statusText) = when (journeyState) {
-        JourneyState.IDLE -> StatusIdle to "No active journey"
-        JourneyState.ACTIVE -> StatusActive to "Journey started"
-        JourneyState.COMPLETED -> StatusCompleted to "Journey completed"
+        JourneyState.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant to "No active journey"
+        JourneyState.ACTIVE -> MaterialTheme.safeRouteColors.success to "Journey active"
+        JourneyState.COMPLETED -> MaterialTheme.colorScheme.primary to "Journey completed"
     }
 
     Box(
         modifier = modifier
             .background(
-                color = statusColor.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(16.dp)
+                color = statusColor.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(MaterialTheme.cornerRadius.full)
             )
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = MaterialTheme.spacing.md, vertical = MaterialTheme.spacing.xs)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically
@@ -48,10 +47,10 @@ fun StatusBadge(
                     .size(8.dp)
                     .background(color = statusColor, shape = CircleShape)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(MaterialTheme.spacing.xs))
             Text(
                 text = statusText,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 color = statusColor
             )
         }
